@@ -1,0 +1,167 @@
+# SQL Studio
+
+SQL Studio 是基于 [Archery](https://github.com/hhyo/Archery) 及兼容 dbadmin HTTP 接口的可视化数据库客户端，提供库表浏览、数据查询、结构查看和多 SQL 控制台，无需修改服务端。
+
+本项目是独立的社区客户端，与 Archery、Chrome、Edge、Microsoft、JetBrains 或 DataGrip 没有官方隶属关系。
+
+## 客户端
+
+| 客户端 | 技术栈 | 适用场景 | 凭据存储 |
+|--------|--------|----------|----------|
+| Chrome/Edge 扩展 | Manifest V3 | 浏览器内使用、由 service worker 处理 Cookie/CSRF/CORS | `chrome.storage.local` 中的 AES-GCM 本地混淆 |
+| Windows 桌面端 | Tauri 2 + Rust + WebView2 | 内网直连、原生 CSV 对话框、便携 exe | Windows 凭据管理器 |
+
+## 主要功能
+
+- 多环境登录和环境切换；
+- MySQL：实例 → 数据库 → 表；
+- PostgreSQL：实例 → 数据库 → schema → 表；
+- 表数据精确总数与分页、组合排序、WHERE 条件片段、MySQL 默认值/DDL、结构查看和 CSV 导出；
+- 多 SQL 拆分执行、选区优先、失败继续和结果页签；
+- 自动联想按当前 SQL 与光标位置调整字段/表优先级；
+- 字段、表、关键词和函数支持包含、跨词与完全匹配；
+- MySQL/PostgreSQL 方言函数候选隔离；
+- 查询历史、控制台草稿、双端共享 UI 与 PostgreSQL schema 上下文。
+
+## 兼容性
+
+- 服务端需要提供 Archery/dbadmin 的登录、实例资源、表结构和查询接口。
+- PostgreSQL 实例类型支持 `pgsql`、`postgres`、`postgresql`。
+- PostgreSQL 的 DDL 页签取决于服务端 `describetable` 响应；当前兼容路径只展示数据和结构。
+- 浏览器扩展支持当前 Chrome/Edge Manifest V3。
+- 桌面端当前面向 Windows 10/11；系统缺少 WebView2 Runtime 时需要单独安装。
+
+## 快速开始
+
+### 浏览器扩展
+
+扩展无需构建：
+
+1. 下载或克隆仓库。
+2. 打开 `chrome://extensions` 或 `edge://extensions`。
+3. 开启开发者模式。
+4. 选择“加载已解压的扩展程序”，加载 `extension/`。
+5. 点击 SQL Studio 图标，在环境管理中配置 Archery/dbadmin 地址。
+
+### Windows 桌面端
+
+当前仓库不内置预编译或签名的 exe，需要从源码构建。
+
+开发依赖：
+
+- Node.js 20+；
+- Rust stable（MSVC 工具链）；
+- Microsoft C++ Build Tools；
+- WebView2 Runtime。
+
+```powershell
+Set-Location desktop
+npm ci
+npm test
+npm run build
+```
+
+产物位于：
+
+```text
+desktop/src-tauri/target/release/sql-studio.exe
+```
+
+当前只生成便携 exe，不生成安装包，也未配置代码签名，因此 Windows SmartScreen 可能显示未知发布者提示。
+
+更完整的安装、运行和首次配置说明见 [快速入门](docs/getting-started.md)。
+
+## 环境配置
+
+默认示例位于双端各自的 `default-envs.json`，只在本地尚无配置时初始化：
+
+```json
+{
+  "id": "test",
+  "name": "测试环境",
+  "color": "#5fad65",
+  "base": "archery-test.example.com",
+  "scheme": "https"
+}
+```
+
+`base` 只填写主机名或 `IP:端口`，不要包含协议、路径或查询参数。浏览器扩展与桌面端的配置互不自动同步。
+
+字段说明、数据位置、备份和清理方式见 [配置与本地数据](docs/configuration.md)。
+
+## 服务端接口
+
+| 接口 | 方法 | 用途 |
+|------|------|------|
+| `/authenticate/` | POST | Django 表单登录与 CSRF 校验 |
+| `/group/user_all_instances/?tag_codes[]=can_read` | GET | 获取可读实例 |
+| `/instance/instance_resource/` | GET | 获取 database/schema/table/column 资源 |
+| `/instance/describetable/` | POST | 获取表结构或 DDL 信息 |
+| `/query/` | POST | 执行 SQL |
+
+客户端不会绕过服务端的实例权限、SQL 审核、脱敏或查询限制。
+
+表数据浏览会在分页查询之外额外执行一条使用相同 WHERE 条件的 `COUNT(*)`，用于展示精确总条数、总页数并正确限制首页/末页按钮。大表或复杂 WHERE 的统计可能增加数据库负载和等待时间，具体性能取决于索引、数据库执行计划及服务端限制。
+
+## 安全与隐私
+
+- 项目不包含遥测、广告或自建云服务，只连接用户配置的 Archery/dbadmin。
+- 扩展端保存密码属于本地混淆，不等同操作系统安全存储；不要在不受信任设备上启用。
+- 桌面端密码存入 Windows 凭据管理器。
+- 桌面端当前绕过系统代理并接受无效/自签 TLS 证书，只适合受控内网；公网连接存在中间人攻击风险。
+- 公开问题和截图中禁止提交真实域名、凭据、Cookie、Session、SQL 或数据库内容。
+
+详见 [安全策略](SECURITY.md) 与 [隐私说明](PRIVACY.md)。
+
+## 开发与测试
+
+```powershell
+Set-Location desktop
+npm ci
+npm test
+cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+cargo check --locked --manifest-path src-tauri/Cargo.toml
+```
+
+桌面端与扩展端有 10 个共享模块，单元测试会检查它们逐字节一致。Windows E2E 使用 mock dbadmin 和 WebView2 CDP，详细流程见 [测试指南](docs/testing.md)。
+
+## 仓库结构
+
+```text
+sql-studio/
+├── .github/                 # CI、Issue 与 PR 模板
+├── desktop/
+│   ├── src/                 # Tauri 前端
+│   ├── src-tauri/           # Rust 宿主
+│   └── test/                # 单元测试、mock 与 Windows E2E
+├── extension/               # Chrome/Edge Manifest V3 扩展
+├── docs/                    # 用户、架构、开发与功能文档
+├── CHANGELOG.md
+├── CONTRIBUTING.md
+├── SECURITY.md
+├── PRIVACY.md
+└── LICENSE
+```
+
+双端架构和模块职责见 [架构说明](docs/architecture.md)。
+
+## 文档
+
+| 文档 | 内容 |
+|------|------|
+| [快速入门](docs/getting-started.md) | 安装、构建、首次运行与服务端要求 |
+| [配置与本地数据](docs/configuration.md) | 环境字段、配置位置、凭据和清理方式 |
+| [架构说明](docs/architecture.md) | 双端宿主、共享模块和请求链路 |
+| [开发指南](docs/development.md) | 开发环境、模块修改和工程约定 |
+| [测试指南](docs/testing.md) | 单测、Rust 检查、生产构建和 E2E |
+| [发布指南](docs/releasing.md) | 版本同步、发布前检查和产物说明 |
+| [FAQ](docs/FAQ.md) | 权限、登录、TLS、WebView2 和 PostgreSQL 常见问题 |
+| [功能文档索引](docs/README.md) | 多 SQL、自动联想、网格和桌面端文档 |
+
+## 参与贡献
+
+请先阅读 [CONTRIBUTING.md](CONTRIBUTING.md) 和 [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)。安全问题不要创建公开 Issue，应按 [SECURITY.md](SECURITY.md) 私密报告。
+
+## 许可证
+
+SQL Studio 自有代码按 [MIT License](LICENSE) 分发。第三方依赖、Archery 服务端和浏览器/操作系统组件由各自许可证或条款约束，详见 [第三方说明](docs/third-party.md)。

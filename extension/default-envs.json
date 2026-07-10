@@ -1,0 +1,4 @@
+[
+  { "id": "test", "name": "测试环境", "color": "#5fad65", "base": "archery-test.example.com", "scheme": "http" },
+  { "id": "prod", "name": "生产环境", "color": "#db5c5c", "base": "archery.example.com", "scheme": "https" }
+]

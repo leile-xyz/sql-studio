@@ -1,0 +1,14 @@
+{
+  "app": {
+    "windows": [
+      {
+        "title": "SQL Studio · dbadmin 可视化客户端",
+        "width": 1360,
+        "height": 860,
+        "minWidth": 960,
+        "minHeight": 620,
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --remote-debugging-port=9333 --remote-allow-origins=*"
+      }
+    ]
+  }
+}

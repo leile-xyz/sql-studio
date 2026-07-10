@@ -1,0 +1,28 @@
+{
+  "name": "sql-studio-desktop",
+  "version": "1.0.0",
+  "private": true,
+  "license": "MIT",
+  "description": "SQL Studio Windows 桌面版（Tauri 2）",
+  "keywords": [
+    "archery",
+    "database",
+    "mysql",
+    "postgresql",
+    "tauri"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "tauri build --no-bundle",
+    "test": "npm run test:unit && npm run test:project",
+    "test:unit": "node test/unit.mjs",
+    "test:project": "node test/project.mjs"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.11.4",
+    "playwright-core": "^1.61.1"
+  }
+}

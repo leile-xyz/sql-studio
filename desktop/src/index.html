@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>SQL Studio · dbadmin 可视化客户端</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+
+<!-- 顶栏 -->
+<div id="topbar">
+  <div class="logo" id="logoBtn" title="关于 / 设置">
+    <div class="mark">
+      <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 2.2c-3 0-5.2.9-5.2 2v7.6c0 1.1 2.2 2 5.2 2s5.2-.9 5.2-2V4.2c0-1.1-2.2-2-5.2-2z"/><ellipse cx="8" cy="4.2" rx="5.2" ry="2"/><path d="M2.8 8c0 1.1 2.2 2 5.2 2s5.2-.9 5.2-2"/></svg>
+    </div>
+    SQL Studio <span class="sub">for dbadmin</span>
+    <span class="logo-caret">▾</span>
+  </div>
+  <div class="env-btn" id="envBtn">
+    <span class="dot" id="envDot"></span>
+    <span id="envName">—</span>
+    <span class="url" id="envUrl"></span>
+    <span class="caret">▼</span>
+  </div>
+  <div class="spacer"></div>
+  <div class="conn off" id="connBox" title="连接状态"><span class="dot"></span><span id="connText">未连接</span></div>
+</div>
+<div class="menu" id="envMenu"></div>
+
+<!-- 应用面板（点击左上角 logo 弹出：关于说明 + 功能设置） -->
+<div class="menu app-panel" id="appPanel">
+  <div class="ap-head">
+    <div class="ap-logo">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 2.2c-3 0-5.2.9-5.2 2v7.6c0 1.1 2.2 2 5.2 2s5.2-.9 5.2-2V4.2c0-1.1-2.2-2-5.2-2z"/><ellipse cx="8" cy="4.2" rx="5.2" ry="2"/><path d="M2.8 8c0 1.1 2.2 2 5.2 2s5.2-.9 5.2-2"/></svg>
+    </div>
+    <div class="ap-head-txt">
+      <div class="ap-title">SQL Studio <span class="ap-ver" id="apAppBadge">v1.0.0</span></div>
+      <div class="ap-sub">dbadmin 可视化客户端</div>
+    </div>
+  </div>
+  <div class="ap-tech">面向 dbadmin(Archery) · 基于 Tauri 2 构建</div>
+  <hr>
+  <div class="mi" data-act="open-envmgr">⚙ 环境管理…</div>
+  <div class="mi" data-act="relogin">⇄ 重新登录当前环境</div>
+  <hr>
+  <div class="ap-info">
+    <div class="ap-sec">连接</div>
+    <div class="ap-kv"><span>环境</span><b id="apEnv">—</b></div>
+    <div class="ap-kv"><span>地址</span><b id="apOrigin">—</b></div>
+    <div class="ap-kv"><span>状态</span><b id="apConn">—</b></div>
+    <div class="ap-sec">运行环境</div>
+    <div class="ap-kv"><span>App</span><b id="apAppVer">1.0.0</b></div>
+    <div class="ap-kv"><span>Tauri</span><b id="apTauriVer">…</b></div>
+    <div class="ap-kv"><span>WebView2</span><b id="apWebview">…</b></div>
+    <div class="ap-kv"><span>系统</span><b id="apOs">…</b></div>
+  </div>
+  <hr>
+  <div class="ap-foot">
+    <span class="ap-copy">© 2026 fanxiaofan</span>
+    <a class="ap-link" id="apRepo" target="_blank" rel="noopener noreferrer">仓库 ↗</a>
+  </div>
+</div>
+
+<!-- 主体 -->
+<div id="main">
+  <div id="sidebar">
+    <div class="panel-head">
+      数据库
+      <span class="grow"></span>
+      <button class="icon-btn" id="btnRefreshTree" title="刷新">⟳</button>
+      <button class="icon-btn" id="btnCollapse" title="全部折叠">⊟</button>
+    </div>
+    <div class="search-wrap"><input id="treeSearch" placeholder="搜索已加载的表…"></div>
+    <div id="tree"></div>
+  </div>
+  <div id="content">
+    <div id="tabbar"></div>
+    <div id="tabbody"></div>
+  </div>
+</div>
+
+<!-- 状态栏 -->
+<div id="statusbar">
+  <span class="st" id="sbStatus"></span>
+  <span class="sql" id="sbSql"></span>
+  <span id="sbTime"></span>
+  <span id="sbCell"></span>
+</div>
+
+<!-- 登录弹窗 -->
+<div class="mask" id="loginMask">
+  <div class="modal">
+    <h3>🔐 连接到 dbadmin</h3>
+    <div class="desc">使用 dbadmin(Archery) 账号认证，会话由服务端 Cookie 维持</div>
+    <label class="fl">环境</label>
+    <select id="loginEnv"></select>
+    <label class="fl">dbadmin 地址</label>
+    <div class="login-endpoint-fields">
+      <select id="loginScheme" aria-label="连接协议"><option>http</option><option>https</option></select>
+      <input type="text" id="loginBase" autocomplete="off" spellcheck="false" placeholder="dbadmin.example.com">
+    </div>
+    <div class="envurl" id="loginEnvUrl"></div>
+    <label class="fl">用户名</label>
+    <input type="text" id="loginUser" autocomplete="off" spellcheck="false">
+    <label class="fl">密码</label>
+    <input type="password" id="loginPwd" autocomplete="off">
+    <label class="chkline"><input type="checkbox" id="loginRemember"> 记住密码 <span class="hint">(存于 Windows 凭据管理器，按环境分别保存)</span></label>
+    <div class="err-line" id="loginErr"></div>
+    <div class="btnrow">
+      <button class="tbtn" id="loginCancel">取消</button>
+      <button class="tbtn primary" id="loginSubmit">登 录</button>
+    </div>
+  </div>
+</div>
+
+<!-- 环境管理弹窗 -->
+<div class="mask" id="envMgrMask">
+  <div class="modal wide env-manager-modal">
+    <div class="env-modal-head">
+      <div class="env-modal-icon">⚙</div>
+      <div>
+        <h3>环境管理</h3>
+        <div class="desc">配置 dbadmin 连接地址，已记住的密码可按环境单独清除</div>
+      </div>
+    </div>
+    <div class="env-table-wrap">
+      <table class="envtb">
+        <colgroup><col class="env-name-col"><col><col class="env-scheme-col"><col class="env-password-col"><col class="env-action-col"></colgroup>
+        <thead><tr><th>环境名称</th><th>域名（base）</th><th>协议</th><th>密码状态</th><th>操作</th></tr></thead>
+        <tbody id="envMgrBody"></tbody>
+      </table>
+    </div>
+    <div class="btnrow env-modal-actions">
+      <button class="tbtn" id="envAdd">＋ 添加环境</button>
+      <div class="env-modal-submit">
+        <button class="tbtn" id="envMgrCancel">取消</button>
+        <button class="tbtn primary" id="envMgrSave">保 存</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,26 @@
+[package]
+name = "sql-studio"
+version = "1.0.0"
+description = "基于 dbadmin(Archery) 接口的可视化 SQL 客户端（Windows 桌面版）"
+edition = "2021"
+license = "MIT"
+authors = ["SQL Studio contributors"]
+publish = false
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-window-state = "2"
+reqwest = { version = "0.12", features = ["cookies", "json"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+keyring = { version = "3", features = ["windows-native"] }
+tokio = { version = "1", features = ["sync"] }
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1

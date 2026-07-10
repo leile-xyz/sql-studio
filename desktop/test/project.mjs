@@ -1,0 +1,96 @@
+import assert from 'node:assert/strict';
+import { readFile, readdir, stat } from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const REPO_ROOT = fileURLToPath(new URL('../..', import.meta.url));
+const SKIP_DIRECTORIES = new Set(['.git', 'node_modules', 'target']);
+const TEXT_EXTENSIONS = new Set([
+  '.css', '.html', '.js', '.json', '.md', '.mjs', '.ps1', '.rs', '.toml', '.xml', '.yml', '.yaml',
+]);
+const SOURCE_EXTENSIONS = new Set(['.js', '.mjs', '.rs']);
+const MAX_SOURCE_LINES = 1000;
+
+const absolutePath = relativePath => path.join(REPO_ROOT, relativePath);
+const readUtf8 = relativePath => readFile(absolutePath(relativePath), 'utf8');
+
+async function walkFiles(directory) {
+  const entries = await readdir(directory, { withFileTypes: true });
+  const files = [];
+  for (const entry of entries) {
+    if (entry.isDirectory() && SKIP_DIRECTORIES.has(entry.name)) continue;
+    const entryPath = path.join(directory, entry.name);
+    if (entry.isDirectory()) files.push(...await walkFiles(entryPath));
+    else if (entry.isFile()) files.push(entryPath);
+  }
+  return files;
+}
+
+async function testRequiredProjectFiles() {
+  const required = [
+    'LICENSE', 'README.md', 'CHANGELOG.md', 'CONTRIBUTING.md', 'CODE_OF_CONDUCT.md',
+    'SECURITY.md', 'PRIVACY.md', '.editorconfig', '.gitattributes',
+    '.github/pull_request_template.md', '.github/ISSUE_TEMPLATE/bug_report.yml',
+    '.github/ISSUE_TEMPLATE/feature_request.yml', '.github/workflows/ci.yml',
+  ];
+  for (const relativePath of required) {
+    const info = await stat(absolutePath(relativePath));
+    assert.ok(info.isFile(), relativePath + ' must be a file');
+  }
+}
+
+async function testVersionAndLicenseMetadata() {
+  const packageJson = JSON.parse(await readUtf8('desktop/package.json'));
+  const packageLock = JSON.parse(await readUtf8('desktop/package-lock.json'));
+  const manifest = JSON.parse(await readUtf8('extension/manifest.json'));
+  const tauriConfig = JSON.parse(await readUtf8('desktop/src-tauri/tauri.conf.json'));
+  const cargoToml = await readUtf8('desktop/src-tauri/Cargo.toml');
+  const cargoVersion = cargoToml.match(/^version\s*=\s*"([^"]+)"/m)?.[1];
+  const cargoLicense = cargoToml.match(/^license\s*=\s*"([^"]+)"/m)?.[1];
+  const versions = [packageJson.version, packageLock.version, manifest.version, tauriConfig.version, cargoVersion];
+  assert.equal(new Set(versions).size, 1, 'package, extension, Tauri and Cargo versions must match');
+  assert.equal(packageJson.license, 'MIT');
+  assert.equal(cargoLicense, 'MIT');
+}
+
+function markdownTargets(source) {
+  const targets = [];
+  const pattern = /\[[^\]]*\]\(([^)]+)\)/g;
+  let match;
+  while ((match = pattern.exec(source))) targets.push(match[1].trim());
+  return targets;
+}
+
+async function testMarkdownLinks(files) {
+  const markdownFiles = files.filter(file => path.extname(file).toLowerCase() === '.md');
+  for (const file of markdownFiles) {
+    const source = await readFile(file, 'utf8');
+    for (const rawTarget of markdownTargets(source)) {
+      if (/^(?:https?:|mailto:|#)/i.test(rawTarget)) continue;
+      const withoutAnchor = rawTarget.split('#')[0].replace(/^<|>$/g, '');
+      if (!withoutAnchor) continue;
+      const target = path.resolve(path.dirname(file), decodeURIComponent(withoutAnchor));
+      await stat(target).catch(() => assert.fail(path.relative(REPO_ROOT, file) + ' has broken link: ' + rawTarget));
+    }
+  }
+}
+
+async function testEncodingAndSourceSize(files) {
+  for (const file of files) {
+    const extension = path.extname(file).toLowerCase();
+    if (!TEXT_EXTENSIONS.has(extension) && path.basename(file) !== 'Cargo.lock') continue;
+    const bytes = await readFile(file);
+    const hasBom = bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf;
+    assert.equal(hasBom, false, path.relative(REPO_ROOT, file) + ' must not contain UTF-8 BOM');
+    if (!SOURCE_EXTENSIONS.has(extension)) continue;
+    const lineCount = bytes.toString('utf8').split(/\r?\n/).length;
+    assert.ok(lineCount <= MAX_SOURCE_LINES, path.relative(REPO_ROOT, file) + ' exceeds 1000 lines');
+  }
+}
+
+const files = await walkFiles(REPO_ROOT);
+await testRequiredProjectFiles();
+await testVersionAndLicenseMetadata();
+await testMarkdownLinks(files);
+await testEncodingAndSourceSize(files);
+console.log('PASS  project: community files, version/license metadata, Markdown links, UTF-8 and source size');

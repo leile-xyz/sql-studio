@@ -1,0 +1,71 @@
+name: Bug 报告
+description: 报告可复现的功能或兼容性问题
+title: "[Bug] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈。请勿提交真实账号、密码、Cookie、Session、Token、内部域名、SQL 内容或查询结果；安全漏洞请按 SECURITY.md 私密报告。
+  - type: dropdown
+    id: client
+    attributes:
+      label: 客户端
+      options:
+        - Chrome/Edge 浏览器扩展
+        - Windows 桌面端
+        - 两者都有
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: SQL Studio 版本或提交
+      placeholder: 例如 1.0.0 或 commit SHA
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: 运行环境
+      placeholder: 例如 Windows 11、Edge 150、Archery 1.x
+    validations:
+      required: true
+  - type: dropdown
+    id: database
+    attributes:
+      label: 数据库类型
+      options:
+        - MySQL
+        - PostgreSQL
+        - 与数据库类型无关
+        - 其他
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 使用虚构环境、表名和数据描述最小复现。
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 预期行为
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际行为与脱敏日志
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 提交确认
+      options:
+        - label: 我已移除凭据、内部地址、SQL 内容和业务数据
+          required: true
+        - label: 我已搜索现有 Issue，未发现相同问题
+          required: true
