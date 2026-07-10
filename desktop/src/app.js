@@ -6,24 +6,16 @@ import { renderGrid } from './lib/grid.mjs';
 import { ConsoleDraftManager } from './lib/console-draft.mjs';
 import { buildCsv } from './lib/csv.mjs';
 import { bindAppEvents } from './lib/app-events.mjs';
+import { bindAboutDialog } from './lib/about-dialog.mjs';
 import { renderResourceTree } from './lib/resource-tree-view.mjs';
 import { renderTableView, resolveTableSubview } from './lib/table-view.mjs';
-import {
-  buildBrowseSql,
-  buildCountSql,
-  findDbType,
-  isPostgresType,
-  parseCountTotal,
-} from './lib/db-context.mjs';
-
+import { buildBrowseSql, buildCountSql, findDbType, isPostgresType, parseCountTotal } from './lib/db-context.mjs';
 const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const attr = s => String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-
 /* mysql column_type 中的数值类型（用于右对齐） */
 const NUM_TYPES = new Set(['TINY', 'SHORT', 'LONG', 'LONGLONG', 'INT24', 'FLOAT', 'DOUBLE', 'DECIMAL', 'NEWDECIMAL', 'YEAR', 'BIT']);
 const isNumType = t => NUM_TYPES.has(String(t || '').toUpperCase());
 const QUERY_RESULT_LIMIT = 1_000_000;
-
 /* ================= 状态 ================= */
 const state = {
   envs: [], activeEnvId: null, env: null, origin: '',
@@ -67,8 +59,7 @@ async function init() {
   } catch (e) {
     renderTabs(); renderBody(); renderTree(); renderEnvUI();
     toast('读取环境配置失败：' + e.message, 'err');
-    openEnvMgr();
-    return;
+    openEnvMgr(); return;
   }
   renderTabs();
   renderBody();
@@ -93,6 +84,7 @@ function bindStatic() {
   $('envAdd').addEventListener('click', addEnvRow);
   $('envMgrCancel').addEventListener('click', () => closeModal('envMgrMask'));
   $('envMgrSave').addEventListener('click', saveEnvMgr);
+  bindAboutDialog({ api, toast });
   document.addEventListener('click', () => hideMenus());
   document.addEventListener('focusout', e => { if (autocomplete.isOpenFor(e.target)) setTimeout(() => autocomplete.hide(), 100); });
   document.querySelectorAll('.mask').forEach(m =>
@@ -127,10 +119,8 @@ function renderEnvUI() {
   const e = state.env;
   if (!e) {
     $('envDot').style.background = '#888';
-    $('envName').textContent = '未配置环境';
-    $('envUrl').textContent = '';
-    $('connBox').className = 'conn off';
-    $('connText').textContent = '未连接';
+    $('envName').textContent = '未配置环境'; $('envUrl').textContent = '';
+    $('connBox').className = 'conn off'; $('connText').textContent = '未连接';
     return;
   }
   $('envDot').style.background = e.color || '#888';
@@ -231,13 +221,13 @@ async function onLoginEnvChange() {
 }
 function updateLoginEnvUrl() {
   const scheme = $('loginScheme').value;
-  const base = $('loginBase').value.trim() || 'dbadmin.example.com';
+  const base = $('loginBase').value.trim() || 'archery.example.com';
   $('loginEnvUrl').textContent = `${scheme}://${base}/authenticate/`;
 }
 function readLoginEnv(env) {
   const scheme = $('loginScheme').value;
   const base = $('loginBase').value.trim();
-  if (!base) throw new Error('请输入 dbadmin 域名');
+  if (!base) throw new Error('请输入 Archery 域名');
   if (!['http', 'https'].includes(scheme)) throw new Error('连接协议必须是 http 或 https');
   if (/[\s/?#]/.test(base) || base.includes('://')) throw new Error('域名仅填写主机名或 IP，可包含端口，不包含协议和路径');
   return Object.freeze({ ...env, scheme, base });
@@ -296,7 +286,7 @@ function renderEnvMgrRows(envs, flags) {
   const body = $('envMgrBody');
   body.innerHTML = envs.map((e, i) => `<tr data-row="${i}">
     <td><input data-f="name" value="${attr(e.name)}"></td>
-    <td><input data-f="base" value="${attr(e.base)}" placeholder="dbadmin.xxx.com"></td>
+    <td><input data-f="base" value="${attr(e.base)}" placeholder="archery.example.com"></td>
     <td><select data-f="scheme"><option ${e.scheme !== 'https' ? 'selected' : ''}>http</option><option ${e.scheme === 'https' ? 'selected' : ''}>https</option></select></td>
     <td>${flags[e.id] ? '<span class="badge nn">已保存</span>' : '<span class="badge null">未保存</span>'}</td>
     <td><div class="env-row-actions">
@@ -623,7 +613,7 @@ function renderBody() {
   $('sbCell').textContent = '';
   setStatus(true, undefined);
   if (!tab) {
-    body.innerHTML = `<div class="center-view">${ICO.db}<div class="big">${state.connected ? '点击左侧表打开数据浏览，或点击标签栏 ＋ 新建查询控制台' : '请先连接 dbadmin 环境'}</div></div>`;
+    body.innerHTML = `<div class="center-view">${ICO.db}<div class="big">${state.connected ? '点击左侧表打开数据浏览，或点击标签栏 ＋ 新建查询控制台' : '请先连接 Archery 环境'}</div></div>`;
     return;
   }
   if (tab.type === 'console') return renderConsole(tab, body);
@@ -835,7 +825,7 @@ async function runConsole(tab) {
   const selEnd = editor ? editor.selectionEnd : 0;
   const execution = resolveSqlExecution({ sql: tab.sql, selectionStart: selStart, selectionEnd: selEnd });
   if (!execution.sql.trim()) { toast('请输入要执行的 SQL', 'err'); return; }
-  // dbadmin 的 /query/ 一次只处理一条 SQL：拆开后顺序执行，某条失败也继续跑其余条
+  // Archery 的 /query/ 一次只处理一条 SQL：拆开后顺序执行，某条失败也继续跑其余条
   const statements = splitSql(execution.sql);
   if (!statements.length) { toast('请输入要执行的 SQL', 'err'); return; }
   tab.executedSql = execution.sql; tab.executedSelection = execution.selectionUsed;

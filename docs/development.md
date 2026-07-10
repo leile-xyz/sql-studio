@@ -49,4 +49,4 @@ npm run dev
 
 ## 敏感数据
 
-只使用 `default-envs.json` 中的 example.com、`desktop/test/mock-dbadmin.js` 或其他虚构数据。公开前还应检查 Git 历史的作者邮箱、旧域名和大文件；详见 [发布指南](releasing.md)。
+只使用 `default-envs.json` 中的 example.com、`desktop/test/mock-archery.js` 或其他虚构数据。公开前还应检查 Git 历史的作者邮箱、旧域名和大文件；详见 [发布指南](releasing.md)。

@@ -1,5 +1,5 @@
 /**
- * 前端 → Rust 宿主的调用封装。所有 dbadmin 请求由 Rust 端代发
+ * 前端 → Rust 宿主的调用封装。所有 Archery 请求由 Rust 端代发
  * （每环境独立 Cookie Jar、自动注入 CSRF/Origin/Referer）。
  * 对 app.js 的接口签名与扩展版完全一致。
  */
@@ -17,7 +17,9 @@ const resource = (origin, params) =>
     get(origin, '/instance/instance_resource/?' + new URLSearchParams(params));
 
 export const api = {
-    /** 登录，成功 resolve，失败 reject（附带 dbadmin 返回的 msg） */
+    /** 当前桌面应用版本 */
+    appVersion: () => invoke('app_version'),
+    /** 登录，成功 resolve，失败 reject（附带 Archery 返回的 msg） */
     login: (origin, username, password) => invoke('login', { origin, username, password }),
     /** 探测会话是否有效（能否取到实例列表） */
     checkSession: async (origin) => { await api.instances(origin); return { ok: true }; },

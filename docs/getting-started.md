@@ -2,7 +2,7 @@
 
 ## 前置条件
 
-SQL Studio 不包含数据库驱动，也不直连 MySQL/PostgreSQL。它连接用户已有的 Archery/dbadmin 服务，该服务至少需要提供登录、实例资源、表结构和 SQL 查询接口。
+SQL Studio 不包含数据库驱动，也不直连 MySQL/PostgreSQL。它连接用户已有的 Archery 服务，该服务至少需要提供登录、实例资源、表结构和 SQL 查询接口。
 
 PostgreSQL schema 浏览依赖实例数据中的 `db_type` 为 `pgsql`、`postgres` 或 `postgresql`。
 
@@ -75,3 +75,5 @@ desktop/src-tauri/target/release/sql-studio.exe
 `extension/default-envs.json` 与 `desktop/src/default-envs.json` 是首次初始化使用的示例。它们不会覆盖已经存在的本地配置，也不应写入真实内网地址或账号信息。
 
 浏览器扩展与桌面端的数据存储彼此独立，不会自动同步。详细位置和清理方式见 [配置与本地数据](configuration.md)。
+
+顶栏右侧的“关于 SQL Studio”按钮可查看当前版本、客户端类型和 MIT 许可证。

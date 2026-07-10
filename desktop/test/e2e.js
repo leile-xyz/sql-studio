@@ -1,7 +1,7 @@
 /**
  * 桌面端 e2e 验证 — 通过 WebView2 远程调试端口（CDP）驱动真实应用，
- * 后端连 test/mock-dbadmin.js，覆盖：登录(CSRF) → 树浏览 → 表数据 → 结构 → 控制台 SQL。
- * 用法：先启动 mock（node test/mock-dbadmin.js），再 node test/e2e.js <exe路径>
+ * 后端连 test/mock-archery.js，覆盖：登录(CSRF) → 树浏览 → 表数据 → 结构 → 控制台 SQL。
+ * 用法：先启动 mock（node test/mock-archery.js），再 node test/e2e.js <exe路径>
  */
 const { chromium } = require('playwright-core');
 const { spawn } = require('child_process');
@@ -122,7 +122,7 @@ async function main() {
     await page.click('#loginSubmit');
     await page.waitForFunction(() => document.getElementById('loginErr').textContent.length > 0, null, { timeout: 8000 });
     const err = await page.textContent('#loginErr');
-    check('错误密码返回 dbadmin msg', err.includes('用户名或密码错误'), err);
+    check('错误密码返回 Archery msg', err.includes('用户名或密码错误'), err);
 
     // 正确登录（勾选记住密码 → 走凭据管理器）
     await page.fill('#loginPwd', 'pass123');
@@ -132,6 +132,17 @@ async function main() {
     await page.waitForFunction(() => !document.getElementById('loginMask').classList.contains('show'), null, { timeout: 8000 });
     await page.waitForFunction(() => document.getElementById('connText').textContent.includes('已连接'), null, { timeout: 8000 });
     check('登录成功（CSRF/Cookie 链路通）', true);
+
+    await page.click('#btnAbout');
+    await page.waitForSelector('#aboutMask.show', { timeout: 8000 });
+    await page.waitForFunction(() => document.getElementById('aboutVersion').textContent === 'v1.0.0', null, { timeout: 8000 });
+    const about = await page.textContent('#aboutMask');
+    check('关于弹窗内容', about.includes('SQL Studio') && about.includes('v1.0.0')
+      && about.includes('Windows 桌面端') && about.includes('MIT License')
+      && !about.includes('项目定位') && !about.includes('隐私') && !about.includes('GitHub 仓库'), about);
+    await page.click('#aboutClose');
+    await page.waitForSelector('#aboutMask.show', { state: 'detached', timeout: 8000 }).catch(() => {});
+    check('关于弹窗关闭', !(await page.locator('#aboutMask').evaluate(element => element.classList.contains('show'))));
 
     // 环境管理弹窗布局
     await page.click('#btnEnvMgr');
@@ -183,6 +194,12 @@ async function main() {
       element.focus();
       element.setSelectionRange(start, start + selectedSql.length);
     }, SELECTED_SQL);
+    const editorDragPrevented = await page.locator('#edTa').evaluate(element => {
+      const event = new DragEvent('dragstart', { bubbles: true, cancelable: true });
+      element.dispatchEvent(event);
+      return event.defaultPrevented;
+    });
+    check('控制台禁止拖动选中文本触发浏览器搜索', editorDragPrevented);
     await page.click('[data-act="run-console"]');
     await page.waitForSelector('#conResults table.grid', { timeout: 8000 });
     const con = await page.textContent('#conResults');

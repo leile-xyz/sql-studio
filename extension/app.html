@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<title>SQL Studio · dbadmin 可视化客户端</title>
+<title>SQL Studio · Archery 可视化客户端</title>
 <link rel="stylesheet" href="app.css">
 </head>
 <body>
@@ -13,7 +13,7 @@
     <div class="mark">
       <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 2.2c-3 0-5.2.9-5.2 2v7.6c0 1.1 2.2 2 5.2 2s5.2-.9 5.2-2V4.2c0-1.1-2.2-2-5.2-2z"/><ellipse cx="8" cy="4.2" rx="5.2" ry="2"/><path d="M2.8 8c0 1.1 2.2 2 5.2 2s5.2-.9 5.2-2"/></svg>
     </div>
-    SQL Studio <span class="sub">for dbadmin</span>
+    SQL Studio <span class="sub">for Archery</span>
   </div>
   <div class="env-btn" id="envBtn">
     <span class="dot" id="envDot"></span>
@@ -25,6 +25,7 @@
   <div class="conn off" id="connBox"><span class="dot"></span><span id="connText">未连接</span></div>
   <button class="icon-btn" id="btnEnvMgr" title="环境管理">⚙</button>
   <button class="icon-btn" id="btnRelogin" title="重新登录">⇄</button>
+  <button class="icon-btn" id="btnAbout" type="button" title="关于 SQL Studio" aria-label="关于 SQL Studio">ⓘ</button>
 </div>
 <div class="menu" id="envMenu"></div>
 
@@ -57,14 +58,14 @@
 <!-- 登录弹窗 -->
 <div class="mask" id="loginMask">
   <div class="modal">
-    <h3>🔐 连接到 dbadmin</h3>
-    <div class="desc">使用 dbadmin(Archery) 账号认证，会话由服务端 Cookie 维持</div>
+    <h3>🔐 连接到 Archery</h3>
+    <div class="desc">使用 Archery 账号认证，会话由服务端 Cookie 维持</div>
     <label class="fl">环境</label>
     <select id="loginEnv"></select>
-    <label class="fl">dbadmin 地址</label>
+    <label class="fl">Archery 地址</label>
     <div class="login-endpoint-fields">
       <select id="loginScheme" aria-label="连接协议"><option>http</option><option>https</option></select>
-      <input type="text" id="loginBase" autocomplete="off" spellcheck="false" placeholder="dbadmin.example.com">
+      <input type="text" id="loginBase" autocomplete="off" spellcheck="false" placeholder="archery.example.com">
     </div>
     <div class="envurl" id="loginEnvUrl"></div>
     <label class="fl">用户名</label>
@@ -87,7 +88,7 @@
       <div class="env-modal-icon">⚙</div>
       <div>
         <h3>环境管理</h3>
-        <div class="desc">配置 dbadmin 连接地址，已记住的密码可按环境单独清除</div>
+        <div class="desc">配置 Archery 连接地址，已记住的密码可按环境单独清除</div>
       </div>
     </div>
     <div class="env-table-wrap">
@@ -103,6 +104,31 @@
         <button class="tbtn" id="envMgrCancel">取消</button>
         <button class="tbtn primary" id="envMgrSave">保 存</button>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- 关于弹窗 -->
+<div class="mask" id="aboutMask">
+  <div class="modal about-modal" role="dialog" aria-modal="true" aria-labelledby="aboutTitle">
+    <div class="about-head">
+      <div class="about-logo">
+        <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 2.2c-3 0-5.2.9-5.2 2v7.6c0 1.1 2.2 2 5.2 2s5.2-.9 5.2-2V4.2c0-1.1-2.2-2-5.2-2z"/><ellipse cx="8" cy="4.2" rx="5.2" ry="2"/><path d="M2.8 8c0 1.1 2.2 2 5.2 2s5.2-.9 5.2-2"/></svg>
+      </div>
+      <div class="about-title">
+        <h3 id="aboutTitle">SQL Studio</h3>
+        <div class="desc">面向 Archery 的开源数据库客户端</div>
+      </div>
+      <span class="about-version" id="aboutVersion">版本读取中…</span>
+    </div>
+    <div class="about-body">
+      <div class="about-meta">
+        <span class="k">客户端</span><span class="v">Chrome/Edge 扩展 · Manifest V3</span>
+        <span class="k">许可证</span><span class="v">MIT License</span>
+      </div>
+    </div>
+    <div class="btnrow about-actions">
+      <button class="tbtn" id="aboutClose" type="button">关闭</button>
     </div>
   </div>
 </div>

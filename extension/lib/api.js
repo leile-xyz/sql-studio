@@ -1,5 +1,5 @@
 /**
- * 前端 → background 的调用封装。所有 dbadmin 请求都由 background service worker
+ * 前端 → background 的调用封装。所有 Archery 请求都由 background service worker
  * 代发（绕过页面 CORS、自动携带会话 Cookie、注入 CSRF）。这里只负责消息往返。
  */
 import { ACTIONS } from './actions.js';
@@ -16,7 +16,9 @@ function send(type, payload) {
 }
 
 export const api = {
-    /** 登录，成功 resolve，失败 reject（附带 dbadmin 返回的 msg） */
+    /** 当前扩展版本 */
+    appVersion: async () => chrome.runtime.getManifest().version,
+    /** 登录，成功 resolve，失败 reject（附带 Archery 返回的 msg） */
     login: (origin, username, password) => send(ACTIONS.LOGIN, { origin, username, password }),
     /** 探测会话是否有效（能否取到实例列表） */
     checkSession: (origin) => send(ACTIONS.SESSION, { origin }),

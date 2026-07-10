@@ -9,6 +9,8 @@
 - `desktop/src-tauri/Cargo.toml`；
 - `desktop/src-tauri/tauri.conf.json`。
 
+关于弹窗的版本从扩展 manifest 或 Tauri 包信息动态读取，不维护独立版本常量。
+
 ## 发布前检查
 
 1. 更新 [CHANGELOG.md](../CHANGELOG.md)，把 Unreleased 内容归入新版本。
@@ -16,7 +18,7 @@
 3. 确认生产构建未合并 `test/tauri.e2e.conf.json` 的 CDP 参数。
 4. 检查仓库中没有 exe、安装包、日志、真实环境配置、凭据或内部截图。
 5. 检查 Git 历史的作者姓名/邮箱、旧域名和敏感文件；首次公开前如需重写历史，应在建立公共协作前完成并通知所有已有协作者。
-6. 确认公开仓库 URL 后，再补 package/Cargo 的 repository/homepage、扩展 `homepage_url` 和安全报告入口。
+6. 打开双端关于弹窗，确认版本、客户端类型和许可证正确。
 7. 生成或更新随二进制分发的第三方许可证清单。
 
 ## 构建产物
@@ -37,4 +39,4 @@ desktop/src-tauri/target/release/sql-studio.exe
 
 ## Git 标签
 
-版本文件和变更记录提交后，再创建与应用版本一致的标签，例如 `v1.1.0`。仓库当前未配置远程地址或自动发布流程，不要在文档中写入占位 URL。
+版本文件和变更记录提交后，再创建与应用版本一致的标签，例如 `v1.1.0`。项目主页为 [github.com/leile-xyz/sql-studio](https://github.com/leile-xyz/sql-studio)。

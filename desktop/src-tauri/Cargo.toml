@@ -1,10 +1,12 @@
 [package]
 name = "sql-studio"
 version = "1.0.0"
-description = "基于 dbadmin(Archery) 接口的可视化 SQL 客户端（Windows 桌面版）"
+description = "基于 Archery 接口的可视化 SQL 客户端（Windows 桌面版）"
 edition = "2021"
 license = "MIT"
 authors = ["SQL Studio contributors"]
+homepage = "https://github.com/leile-xyz/sql-studio"
+repository = "https://github.com/leile-xyz/sql-studio"
 publish = false
 
 [build-dependencies]

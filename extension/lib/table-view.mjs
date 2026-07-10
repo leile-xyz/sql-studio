@@ -186,7 +186,7 @@ function renderDdlView(tab, subview) {
   }
   const content = tab.meta.ddl
     ? `<div class="ddlwrap"><div class="codebox">${highlightSql(tab.meta.ddl)}</div></div>`
-    : '<div class="center-view"><div>dbadmin 未返回该表的建表 DDL</div></div>';
+    : '<div class="center-view"><div>Archery 未返回该表的建表 DDL</div></div>';
   return { html: head + content, sql: tab.meta.sourceSql || '' };
 }
 

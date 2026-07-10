@@ -1,6 +1,6 @@
 /**
  * SQL Studio — background service worker
- * 统一代发 dbadmin(Archery) 请求：
+ * 统一代发 Archery 请求：
  *   - service worker + host_permissions → 不受页面 CORS 限制，可读响应体
  *   - credentials:'include' → 浏览器自动携带该域会话 Cookie（含 HttpOnly 的 sessionid）
  *   - 从 csrftoken Cookie 读取值，注入 X-CSRFToken 头（Django CSRF 校验要求 header == cookie）
@@ -31,7 +31,7 @@ chrome.action.onClicked.addListener(() => { openApp(); });
  * 扩展发起的 POST 请求，浏览器会强制带上 Origin: chrome-extension://<id>，
  * Django CSRF 中间件校验 Origin 不在信任列表 → 403「CSRF验证失败」。
  * fetch 无法覆盖 Origin（禁止头），故用 DNR 在请求出站前把 Origin/Referer
- * 改写成目标 dbadmin 源，令服务端校验通过。规则按环境域名逐条生成。 */
+ * 改写成目标 Archery 源，令服务端校验通过。规则按环境域名逐条生成。 */
 const DNR_BASE_ID = 1000;
 const DNR_RESOURCE_TYPES = ['main_frame', 'sub_frame', 'stylesheet', 'script', 'image', 'font', 'object', 'xmlhttprequest', 'ping', 'csp_report', 'media', 'websocket', 'other'];
 /** 默认环境来自扩展根目录的 default-envs.json，与 lib/store.js 共用一份配置 */
@@ -105,14 +105,14 @@ async function requestText(url, options = {}) {
     return { resp, text };
 }
 
-/** 请求并按 dbadmin JSON 协议解析：{status, msg, data}；status!=0 或非 JSON 均抛错 */
+/** 请求并按 Archery JSON 协议解析：{status, msg, data}；status!=0 或非 JSON 均抛错 */
 async function requestJson(url, options = {}) {
     const { resp, text } = await requestText(url, options);
     let json;
     try {
         json = JSON.parse(text);
     } catch (e) {
-        // dbadmin 未登录时会重定向到登录页返回 HTML
+        // Archery 未登录时会重定向到登录页返回 HTML
         if (/<html|<!doctype/i.test(text)) {
             throw new Error('未登录或会话已过期，请重新登录');
         }

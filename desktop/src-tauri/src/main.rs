@@ -1,5 +1,5 @@
 // SQL Studio 桌面版宿主 — 对应扩展 background.js 的职责：
-// 代发 dbadmin 请求（每环境独立 Cookie Jar）、登录/CSRF、本地 KV 存储、
+// 代发 Archery 请求（每环境独立 Cookie Jar）、登录/CSRF、本地 KV 存储、
 // Windows 凭据管理器（DPAPI）存取密码、CSV 原生另存为。
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
@@ -34,9 +34,9 @@ async fn env_client(http: &Http, origin: &str) -> Result<Arc<EnvClient>, String>
     let client = Client::builder()
         .cookie_provider(jar.clone())
         .user_agent(UA)
-        // 目标均为内网 dbadmin：忽略系统/环境变量代理，直连
+        // 目标均为内网 Archery：忽略系统/环境变量代理，直连
         .no_proxy()
-        // 内网自签 https 兼容；目标环境均为受控内网 dbadmin
+        // 内网自签 https 兼容；目标环境均为受控内网 Archery
         .danger_accept_invalid_certs(true)
         .build()
         .map_err(|e| e.to_string())?;
@@ -65,12 +65,12 @@ fn cookie_value(jar: &Jar, origin: &str, name: &str) -> String {
     String::new()
 }
 
-/// 按 dbadmin JSON 协议解析：{status, msg, data}；status!=0 或非 JSON 均报错
-fn parse_dbadmin(text: &str, http_status: u16) -> Result<Value, String> {
+/// 按 Archery JSON 协议解析：{status, msg, data}；status!=0 或非 JSON 均报错
+fn parse_archery_response(text: &str, http_status: u16) -> Result<Value, String> {
     let v: Value = match serde_json::from_str(text) {
         Ok(v) => v,
         Err(_) => {
-            // 未登录时 dbadmin 重定向到登录页返回 HTML
+            // 未登录时 Archery 重定向到登录页返回 HTML
             let low = text.to_lowercase();
             if low.contains("<html") || low.contains("<!doctype") {
                 return Err("未登录或会话已过期，请重新登录".into());
@@ -129,7 +129,7 @@ async fn login(
     Ok(())
 }
 
-/// GET 业务接口，返回 dbadmin 协议中的 data 字段
+/// GET 业务接口，返回 Archery 协议中的 data 字段
 #[tauri::command]
 async fn api_get(http: State<'_, Http>, origin: String, path: String) -> Result<Value, String> {
     let ec = env_client(&http, &origin).await?;
@@ -143,7 +143,7 @@ async fn api_get(http: State<'_, Http>, origin: String, path: String) -> Result<
         .map_err(|_| NET_ERR.to_string())?;
     let status = resp.status().as_u16();
     let text = resp.text().await.map_err(|e| e.to_string())?;
-    parse_dbadmin(&text, status)
+    parse_archery_response(&text, status)
 }
 
 /// POST 业务接口（表单编码 + CSRF），返回 data 字段
@@ -169,7 +169,7 @@ async fn api_post(
         .map_err(|_| NET_ERR.to_string())?;
     let status = resp.status().as_u16();
     let text = resp.text().await.map_err(|e| e.to_string())?;
-    parse_dbadmin(&text, status)
+    parse_archery_response(&text, status)
 }
 
 /* ============ 本地 KV 存储（环境列表 / 查询历史等非敏感数据） ============ */
@@ -227,6 +227,13 @@ fn cred_delete(env_id: String) -> Result<(), String> {
     }
 }
 
+/* ============ 应用信息 ============ */
+
+#[tauri::command]
+fn app_version(app: tauri::AppHandle) -> String {
+    app.package_info().version.to_string()
+}
+
 /* ============ CSV 原生另存为 ============ */
 
 #[tauri::command]
@@ -281,6 +288,7 @@ fn main() {
             cred_set,
             cred_get,
             cred_delete,
+            app_version,
             export_csv
         ])
         .run(tauri::generate_context!())

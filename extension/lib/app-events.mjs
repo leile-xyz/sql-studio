@@ -82,7 +82,7 @@ function createClickHandlers(options) {
 
 function copyDdl(tab, options) {
   if (!tab || !tab.meta || !tab.meta.ddl) {
-    options.toast('dbadmin 未返回该表的建表 DDL', 'err');
+    options.toast('Archery 未返回该表的建表 DDL', 'err');
     return;
   }
   navigator.clipboard.writeText(tab.meta.ddl).then(() => options.toast('DDL 已复制', 'ok'));
@@ -200,6 +200,9 @@ function createColumnResize(event, resizer, tab) {
 }
 
 function bindDragEvents(options) {
+  document.addEventListener('dragstart', event => {
+    if (event.target.closest?.('[data-act=ed-input]')) event.preventDefault();
+  });
   document.addEventListener('mousedown', event => {
     const resizer = event.target.closest('.th-rs');
     const editorResizer = event.target.closest('[data-act=ed-resize]');

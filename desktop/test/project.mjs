@@ -47,10 +47,33 @@ async function testVersionAndLicenseMetadata() {
   const cargoToml = await readUtf8('desktop/src-tauri/Cargo.toml');
   const cargoVersion = cargoToml.match(/^version\s*=\s*"([^"]+)"/m)?.[1];
   const cargoLicense = cargoToml.match(/^license\s*=\s*"([^"]+)"/m)?.[1];
+  const cargoRepository = cargoToml.match(/^repository\s*=\s*"([^"]+)"/m)?.[1];
   const versions = [packageJson.version, packageLock.version, manifest.version, tauriConfig.version, cargoVersion];
   assert.equal(new Set(versions).size, 1, 'package, extension, Tauri and Cargo versions must match');
   assert.equal(packageJson.license, 'MIT');
   assert.equal(cargoLicense, 'MIT');
+  assert.equal(packageJson.homepage, 'https://github.com/leile-xyz/sql-studio');
+  assert.equal(cargoRepository, packageJson.homepage);
+  assert.equal(manifest.homepage_url, packageJson.homepage);
+}
+
+async function testAboutDialogMetadata() {
+  const files = [
+    ['desktop/src/index.html', 'Windows 桌面端 · Tauri 2'],
+    ['extension/app.html', 'Chrome/Edge 扩展 · Manifest V3'],
+  ];
+  for (const [relativePath, clientLabel] of files) {
+    const html = await readUtf8(relativePath);
+    for (const id of ['btnAbout', 'aboutMask', 'aboutTitle', 'aboutVersion', 'aboutClose']) {
+      assert.ok(html.includes(`id="${id}"`), relativePath + ' missing ' + id);
+    }
+    assert.ok(html.includes('role="dialog"') && html.includes('aria-modal="true"'));
+    assert.ok(html.includes(clientLabel), relativePath + ' missing client label');
+    assert.ok(html.includes('MIT License'), relativePath + ' missing license');
+    assert.ok(!html.includes('项目定位'), relativePath + ' includes removed project positioning');
+    assert.ok(!html.includes('<span class="k">隐私</span>'), relativePath + ' includes removed privacy entry');
+    assert.ok(!html.includes('GitHub 仓库'), relativePath + ' includes removed repository entry');
+  }
 }
 
 function markdownTargets(source) {
@@ -91,6 +114,7 @@ async function testEncodingAndSourceSize(files) {
 const files = await walkFiles(REPO_ROOT);
 await testRequiredProjectFiles();
 await testVersionAndLicenseMetadata();
+await testAboutDialogMetadata();
 await testMarkdownLinks(files);
 await testEncodingAndSourceSize(files);
 console.log('PASS  project: community files, version/license metadata, Markdown links, UTF-8 and source size');

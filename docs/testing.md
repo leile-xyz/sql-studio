@@ -8,7 +8,7 @@ npm ci
 npm test
 ```
 
-测试覆盖 SQL 拆分、多语句格式化、自动联想、MySQL/PostgreSQL 方言、schema 上下文、凭据加密、草稿、CSV 和双端共享模块一致性。
+测试覆盖 SQL 拆分、多语句格式化、自动联想、MySQL/PostgreSQL 方言、schema 上下文、凭据加密、草稿、CSV、关于弹窗元数据和双端共享模块一致性。
 
 ## 静态检查
 
@@ -31,7 +31,9 @@ npm run build
 
 ## Windows E2E
 
-E2E 仅支持 Windows，使用 mock dbadmin 和带本地 CDP 调试参数的测试构建。
+E2E 仅支持 Windows，使用 mock Archery 和带本地 CDP 调试参数的测试构建。
+
+桌面端流程同时检查关于弹窗的入口、版本、许可证和关闭交互。
 
 构建测试程序：
 
@@ -45,7 +47,7 @@ npx tauri build --no-bundle --config test/tauri.e2e.conf.json
 
 ```powershell
 Set-Location desktop
-node test/mock-dbadmin.js
+node test/mock-archery.js
 ```
 
 终端二运行 E2E：

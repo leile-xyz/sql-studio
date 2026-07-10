@@ -2,7 +2,7 @@
   "app": {
     "windows": [
       {
-        "title": "SQL Studio · dbadmin 可视化客户端",
+        "title": "SQL Studio · Archery 可视化客户端",
         "width": 1360,
         "height": 860,
         "minWidth": 960,

@@ -2,7 +2,7 @@
 
 ## 为什么扩展需要访问所有 HTTP/HTTPS 站点？
 
-用户可以配置任意 Archery/dbadmin 地址，Manifest V3 需要预先声明 host 权限。扩展只会请求环境管理中配置的地址。
+用户可以配置任意 Archery 地址，Manifest V3 需要预先声明 host 权限。扩展只会请求环境管理中配置的地址。
 
 ## 为什么需要 Cookie 权限？
 
@@ -42,13 +42,13 @@ Archery 使用 Django Cookie 会话。扩展需要读取 CSRF Cookie 并携带 S
 
 ## PostgreSQL 为什么没有 DDL 页签？
 
-当前兼容的 dbadmin `describetable` 响应只提供列元数据，不提供完整建表 DDL，因此客户端不展示无数据来源的 DDL 页签。
+当前兼容的 Archery `describetable` 响应只提供列元数据，不提供完整建表 DDL，因此客户端不展示无数据来源的 DDL 页签。
 
 ## 为什么表数据查询会多一次 COUNT 查询？
 
 分页栏需要精确总条数和总页数。打开表、翻页、排序、刷新或修改 WHERE 时，客户端都会额外执行一条使用相同表与 WHERE 条件的 `COUNT(*)`，并据此限制首页、上一页、下一页和末页按钮。`/query/` 返回的 `affected_rows` 不是 SELECT 的全表总数，不能替代该查询。
 
-大表、复杂 WHERE 或缺少合适索引时，COUNT 可能增加数据库负载和等待时间；执行计划、超时、审核及权限仍由数据库和 Archery/dbadmin 控制。
+大表、复杂 WHERE 或缺少合适索引时，COUNT 可能增加数据库负载和等待时间；执行计划、超时、审核及权限仍由数据库和 Archery 控制。
 
 ## 如何清理保存密码、历史和草稿？
 

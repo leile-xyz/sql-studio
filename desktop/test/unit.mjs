@@ -233,16 +233,16 @@ async function testDesktopApiSchemaRequests() {
   };
   try {
     const { api } = await import('../src/lib/api.js?schema-contract');
-    assert.deepEqual(await api.schemas('http://dbadmin', { instance: 'mock-pg', db: 'dify' }), ['public']);
-    await api.tables('http://dbadmin', { instance: 'mock-pg', db: 'dify', schema: 'public' });
-    const metadata = await api.describe('http://dbadmin', {
+    assert.deepEqual(await api.schemas('http://archery', { instance: 'mock-pg', db: 'dify' }), ['public']);
+    await api.tables('http://archery', { instance: 'mock-pg', db: 'dify', schema: 'public' });
+    const metadata = await api.describe('http://archery', {
       instance: 'mock-pg',
       db: 'dify',
       schema: 'public',
       table: 'account_integrates',
     });
     assert.equal(metadata.columns[0].name, 'id');
-    await api.query('http://dbadmin', {
+    await api.query('http://archery', {
       instance: 'mock-pg',
       db: 'dify',
       schema: 'public',
@@ -315,6 +315,7 @@ async function testExtensionCredentialEncryption() {
 async function testDesktopExtensionParity() {
   const pairs = [
     'sql-editor.mjs',
+    'about-dialog.mjs',
     'db-context.mjs',
     'console-draft.mjs',
     'app-events.mjs',

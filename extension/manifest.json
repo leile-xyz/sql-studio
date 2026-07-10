@@ -1,8 +1,9 @@
 {
   "manifest_version": 3,
-  "name": "SQL Studio for dbadmin",
+  "name": "SQL Studio for Archery",
   "version": "1.0.0",
-  "description": "基于 dbadmin(Archery)接口的可视化 SQL 客户端：浏览库表结构、翻页查数据、点击排序、快速筛选、自由 SQL，支持多环境与记住密码。",
+  "description": "基于 Archery 接口的可视化 SQL 客户端：浏览库表结构、翻页查数据、点击排序、快速筛选、自由 SQL，支持多环境与记住密码。",
+  "homepage_url": "https://github.com/leile-xyz/sql-studio",
   "permissions": [
     "storage",
     "cookies",

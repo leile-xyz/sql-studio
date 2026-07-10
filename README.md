@@ -1,8 +1,10 @@
 # SQL Studio
 
-SQL Studio 是基于 [Archery](https://github.com/hhyo/Archery) 及兼容 dbadmin HTTP 接口的可视化数据库客户端，提供库表浏览、数据查询、结构查看和多 SQL 控制台，无需修改服务端。
+SQL Studio 是基于 [Archery](https://github.com/hhyo/Archery) 兼容 HTTP 接口的可视化数据库客户端，提供库表浏览、数据查询、结构查看和多 SQL 控制台，无需修改服务端。
 
 本项目是独立的社区客户端，与 Archery、Chrome、Edge、Microsoft、JetBrains 或 DataGrip 没有官方隶属关系。
+
+项目主页：[github.com/leile-xyz/sql-studio](https://github.com/leile-xyz/sql-studio)
 
 ## 客户端
 
@@ -21,11 +23,12 @@ SQL Studio 是基于 [Archery](https://github.com/hhyo/Archery) 及兼容 dbadmi
 - 自动联想按当前 SQL 与光标位置调整字段/表优先级；
 - 字段、表、关键词和函数支持包含、跨词与完全匹配；
 - MySQL/PostgreSQL 方言函数候选隔离；
-- 查询历史、控制台草稿、双端共享 UI 与 PostgreSQL schema 上下文。
+- 查询历史、控制台草稿、双端共享 UI 与 PostgreSQL schema 上下文；
+- 关于弹窗展示版本、客户端类型和 MIT 许可证。
 
 ## 兼容性
 
-- 服务端需要提供 Archery/dbadmin 的登录、实例资源、表结构和查询接口。
+- 服务端需要提供 Archery 的登录、实例资源、表结构和查询接口。
 - PostgreSQL 实例类型支持 `pgsql`、`postgres`、`postgresql`。
 - PostgreSQL 的 DDL 页签取决于服务端 `describetable` 响应；当前兼容路径只展示数据和结构。
 - 浏览器扩展支持当前 Chrome/Edge Manifest V3。
@@ -41,7 +44,7 @@ SQL Studio 是基于 [Archery](https://github.com/hhyo/Archery) 及兼容 dbadmi
 2. 打开 `chrome://extensions` 或 `edge://extensions`。
 3. 开启开发者模式。
 4. 选择“加载已解压的扩展程序”，加载 `extension/`。
-5. 点击 SQL Studio 图标，在环境管理中配置 Archery/dbadmin 地址。
+5. 点击 SQL Studio 图标，在环境管理中配置 Archery 地址。
 
 ### Windows 桌面端
 
@@ -105,7 +108,7 @@ desktop/src-tauri/target/release/sql-studio.exe
 
 ## 安全与隐私
 
-- 项目不包含遥测、广告或自建云服务，只连接用户配置的 Archery/dbadmin。
+- 项目不包含遥测、广告或自建云服务，只连接用户配置的 Archery。
 - 扩展端保存密码属于本地混淆，不等同操作系统安全存储；不要在不受信任设备上启用。
 - 桌面端密码存入 Windows 凭据管理器。
 - 桌面端当前绕过系统代理并接受无效/自签 TLS 证书，只适合受控内网；公网连接存在中间人攻击风险。
@@ -123,7 +126,7 @@ cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
 cargo check --locked --manifest-path src-tauri/Cargo.toml
 ```
 
-桌面端与扩展端有 10 个共享模块，单元测试会检查它们逐字节一致。Windows E2E 使用 mock dbadmin 和 WebView2 CDP，详细流程见 [测试指南](docs/testing.md)。
+桌面端与扩展端有 10 个共享模块，单元测试会检查它们逐字节一致。Windows E2E 使用 mock Archery 和 WebView2 CDP，详细流程见 [测试指南](docs/testing.md)。
 
 ## 仓库结构
 

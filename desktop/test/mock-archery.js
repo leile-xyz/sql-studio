@@ -1,8 +1,8 @@
 /**
- * mock dbadmin(Archery) 服务 — 供桌面端 e2e 验证。
+ * mock Archery 服务 — 供桌面端 e2e 验证。
  * 复现 Django 语义：csrftoken Cookie + X-CSRFToken 校验、sessionid 会话、
  * 未登录返回 HTML 登录页、统一 {status,msg,data} 协议。
- * 用法：node test/mock-dbadmin.js [port=9123]
+ * 用法：node test/mock-archery.js [port=9123]
  */
 const http = require('http');
 const PORT = +(process.argv[2] || 9123);
@@ -208,7 +208,7 @@ const server = http.createServer((req, res) => {
       return json(res, { status: 1, msg: '用户名或密码错误', data: null });
     }
 
-    // 其余接口均要求会话；未登录回 HTML（复现 dbadmin 重定向到登录页的表现）
+    // 其余接口均要求会话；未登录回 HTML（复现 Archery 重定向到登录页的表现）
     if (!authed) return loginPage(res);
 
     if (url.pathname === '/group/user_all_instances/') {
@@ -231,4 +231,4 @@ const server = http.createServer((req, res) => {
     res.writeHead(404); res.end('not found');
   });
 });
-server.listen(PORT, () => console.log(`mock dbadmin listening on :${PORT}`));
+server.listen(PORT, () => console.log(`mock Archery listening on :${PORT}`));

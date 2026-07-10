@@ -1,5 +1,5 @@
 /**
- * dbadmin 表结构响应解析：兼容 MySQL CREATE TABLE 与 PostgreSQL 列元数据。
+ * Archery 表结构响应解析：兼容 MySQL CREATE TABLE 与 PostgreSQL 列元数据。
  */
 
 const NUMERIC_RE = /\b(int|integer|bigint|tinyint|smallint|mediumint|decimal|numeric|real|double(?:\s+precision)?|float|bit|year|serial|bigserial|money)\b/i;
