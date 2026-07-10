@@ -9,12 +9,11 @@
 
 <!-- 顶栏 -->
 <div id="topbar">
-  <div class="logo" id="logoBtn" title="关于 / 设置">
+  <div class="logo">
     <div class="mark">
       <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 2.2c-3 0-5.2.9-5.2 2v7.6c0 1.1 2.2 2 5.2 2s5.2-.9 5.2-2V4.2c0-1.1-2.2-2-5.2-2z"/><ellipse cx="8" cy="4.2" rx="5.2" ry="2"/><path d="M2.8 8c0 1.1 2.2 2 5.2 2s5.2-.9 5.2-2"/></svg>
     </div>
     SQL Studio <span class="sub">for dbadmin</span>
-    <span class="logo-caret">▾</span>
   </div>
   <div class="env-btn" id="envBtn">
     <span class="dot" id="envDot"></span>
@@ -23,43 +22,11 @@
     <span class="caret">▼</span>
   </div>
   <div class="spacer"></div>
-  <div class="conn off" id="connBox" title="连接状态"><span class="dot"></span><span id="connText">未连接</span></div>
+  <div class="conn off" id="connBox"><span class="dot"></span><span id="connText">未连接</span></div>
+  <button class="icon-btn" id="btnEnvMgr" title="环境管理">⚙</button>
+  <button class="icon-btn" id="btnRelogin" title="重新登录">⇄</button>
 </div>
 <div class="menu" id="envMenu"></div>
-
-<!-- 应用面板（点击左上角 logo 弹出：关于说明 + 功能设置） -->
-<div class="menu app-panel" id="appPanel">
-  <div class="ap-head">
-    <div class="ap-logo">
-      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 2.2c-3 0-5.2.9-5.2 2v7.6c0 1.1 2.2 2 5.2 2s5.2-.9 5.2-2V4.2c0-1.1-2.2-2-5.2-2z"/><ellipse cx="8" cy="4.2" rx="5.2" ry="2"/><path d="M2.8 8c0 1.1 2.2 2 5.2 2s5.2-.9 5.2-2"/></svg>
-    </div>
-    <div class="ap-head-txt">
-      <div class="ap-title">SQL Studio <span class="ap-ver" id="apAppBadge">v1.0.0</span></div>
-      <div class="ap-sub">dbadmin 可视化客户端</div>
-    </div>
-  </div>
-  <div class="ap-tech">面向 dbadmin(Archery) · 基于 Tauri 2 构建</div>
-  <hr>
-  <div class="mi" data-act="open-envmgr">⚙ 环境管理…</div>
-  <div class="mi" data-act="relogin">⇄ 重新登录当前环境</div>
-  <hr>
-  <div class="ap-info">
-    <div class="ap-sec">连接</div>
-    <div class="ap-kv"><span>环境</span><b id="apEnv">—</b></div>
-    <div class="ap-kv"><span>地址</span><b id="apOrigin">—</b></div>
-    <div class="ap-kv"><span>状态</span><b id="apConn">—</b></div>
-    <div class="ap-sec">运行环境</div>
-    <div class="ap-kv"><span>App</span><b id="apAppVer">1.0.0</b></div>
-    <div class="ap-kv"><span>Tauri</span><b id="apTauriVer">…</b></div>
-    <div class="ap-kv"><span>WebView2</span><b id="apWebview">…</b></div>
-    <div class="ap-kv"><span>系统</span><b id="apOs">…</b></div>
-  </div>
-  <hr>
-  <div class="ap-foot">
-    <span class="ap-copy">© 2026 fanxiaofan</span>
-    <a class="ap-link" id="apRepo" target="_blank" rel="noopener noreferrer">仓库 ↗</a>
-  </div>
-</div>
 
 <!-- 主体 -->
 <div id="main">

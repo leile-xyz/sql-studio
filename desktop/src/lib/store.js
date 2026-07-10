@@ -15,12 +15,13 @@ const HISTORY_LIMIT = 100;
  *  仅在本地尚无环境配置时作为初始值写入，之后以「环境管理」中的配置为准。 */
 async function loadDefaultEnvs() {
     try {
-        const resp = await fetch('/default-envs.json');
+        const resp = await fetch(new URL('../default-envs.json', import.meta.url));
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const envs = await resp.json();
-        return Array.isArray(envs) ? envs.filter(e => e && e.base) : [];
+        if (!Array.isArray(envs)) throw new Error('根节点必须是数组');
+        return envs.filter(e => e && e.base);
     } catch (e) {
-        console.error('[SQL Studio] 读取 default-envs.json 失败', e);
-        return [];
+        throw new Error(`读取 default-envs.json 失败：${e.message}`);
     }
 }
 
@@ -36,6 +37,7 @@ const kvSet = (key, value) => invoke('kv_set', { key, value });
 
 export async function getEnvs() {
     const envs = await kvGet(KEY_ENVS);
+    if (envs != null && !Array.isArray(envs)) throw new Error('本地环境配置格式无效');
     if (!envs || !envs.length) {
         const defaults = await loadDefaultEnvs();
         if (defaults.length) await kvSet(KEY_ENVS, defaults);

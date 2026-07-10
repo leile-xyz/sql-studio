@@ -61,11 +61,19 @@ const autocomplete = new SqlAutocomplete({
 async function init() {
   bindStatic();
   bindDelegation();
-  state.envs = await store.getEnvs();
-  state.activeEnvId = await store.getActiveEnvId();
+  try {
+    state.envs = await store.getEnvs();
+    state.activeEnvId = await store.getActiveEnvId();
+  } catch (e) {
+    renderTabs(); renderBody(); renderTree(); renderEnvUI();
+    toast('读取环境配置失败：' + e.message, 'err');
+    openEnvMgr();
+    return;
+  }
   renderTabs();
   renderBody();
   await applyEnv(state.activeEnvId);
+  if (!state.env) { openEnvMgr(); return; }
   await ensureConnected();
 }
 
@@ -117,7 +125,14 @@ async function applyEnv(id) {
 
 function renderEnvUI() {
   const e = state.env;
-  if (!e) return;
+  if (!e) {
+    $('envDot').style.background = '#888';
+    $('envName').textContent = '未配置环境';
+    $('envUrl').textContent = '';
+    $('connBox').className = 'conn off';
+    $('connText').textContent = '未连接';
+    return;
+  }
   $('envDot').style.background = e.color || '#888';
   $('envName').textContent = e.name;
   $('envUrl').textContent = e.base;
@@ -269,9 +284,13 @@ async function doLogin() {
 /* ================= 环境管理 ================= */
 async function openEnvMgr() {
   hideMenus();
-  const flags = await store.getRememberFlags();
-  renderEnvMgrRows(state.envs.map(e => ({ ...e })), flags);
+  const envs = state.envs.map(e => ({ ...e }));
+  renderEnvMgrRows(envs, {});
   openModal('envMgrMask');
+  try {
+    const flags = await store.getRememberFlags();
+    if ($('envMgrMask').classList.contains('show')) renderEnvMgrRows(envs, flags);
+  } catch (e) { toast('读取密码状态失败：' + e.message, 'err'); }
 }
 function renderEnvMgrRows(envs, flags) {
   const body = $('envMgrBody');
@@ -312,17 +331,14 @@ function collectEnvMgr() {
 async function saveEnvMgr() {
   const envs = collectEnvMgr().filter(e => e.base);
   if (!envs.length) { toast('至少保留一个带域名的环境', 'err'); return; }
-  await store.saveEnvs(envs);
-  state.envs = envs;
-  closeModal('envMgrMask');
-  if (!envs.find(e => e.id === state.activeEnvId)) {
-    await applyEnv(envs[0].id);
+  try {
+    await store.saveEnvs(envs);
+    state.envs = envs;
+    closeModal('envMgrMask');
+    await applyEnv(envs.find(e => e.id === state.activeEnvId) ? state.activeEnvId : envs[0].id);
     await ensureConnected();
-  } else {
-    await applyEnv(state.activeEnvId);
-    await ensureConnected();
-  }
-  toast('环境配置已保存', 'ok');
+    toast('环境配置已保存', 'ok');
+  } catch (e) { toast('保存环境配置失败：' + e.message, 'err'); }
 }
 async function clearEnvPwd(envId) {
   await store.clearCredPassword(envId);

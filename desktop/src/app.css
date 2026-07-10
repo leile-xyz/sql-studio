@@ -37,9 +37,6 @@ button { font-family: inherit; }
 .logo { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 14px; letter-spacing: .3px; }
 .logo .mark { width: 22px; height: 22px; border-radius: 5px; background: linear-gradient(135deg, #3574f0, #7b5cf0); display: flex; align-items: center; justify-content: center; color: #fff; }
 .logo .sub { color: var(--text-faint); font-weight: 400; font-size: 12px; margin-left: 2px; }
-.logo { cursor: pointer; padding: 3px 7px; margin-left: -4px; border-radius: 7px; border: 1px solid transparent; user-select: none; }
-.logo:hover { background: var(--panel-3); border-color: var(--border-light); }
-.logo .logo-caret { color: var(--text-faint); font-size: 9px; margin-left: 1px; }
 .env-btn { display: flex; align-items: center; gap: 8px; background: var(--panel-3); border: 1px solid var(--border-light); border-radius: 6px; padding: 4px 10px; cursor: pointer; user-select: none; }
 .env-btn:hover { border-color: #55575c; }
 .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
