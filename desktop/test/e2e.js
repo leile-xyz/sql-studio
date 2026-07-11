@@ -18,6 +18,7 @@ const MULTI_SQL = 'SELECT 1;\nSELECT * FROM t_user;';
 const SELECTED_SQL = 'SELECT * FROM t_user;';
 // 验证「某条失败时继续其余条」：第 1 条成功、第 2 条失败、第 3 条成功
 const MIXED_SQL = 'SELECT 1;\nSELECT FAIL;\nSELECT * FROM t_user;';
+const STORE_PATH = path.join(APPDATA_DIR, 'store.json');
 
 const results = [];
 function check(name, ok, detail) {
@@ -25,6 +26,23 @@ function check(name, ok, detail) {
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? '  — ' + detail : ''}`);
 }
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+function restoreStore(backup) {
+  if (backup == null) fs.rmSync(STORE_PATH, { force: true });
+  else fs.writeFileSync(STORE_PATH, backup);
+}
+async function openNewConsole(page) {
+  await page.click('[data-act="toggle-console-menu"]');
+  await page.click('#consoleMenu [data-act="new-console"]');
+  await page.waitForSelector('#edTa', { timeout: 8000 });
+}
+
+async function openConsoleFromAll(page, index) {
+  await page.click('[data-act="toggle-console-menu"]');
+  await page.click('#consoleMenu [data-act="show-all-consoles"]');
+  const items = page.locator('#consoleAllMenu [data-act="open-console"]');
+  await items.nth(index).click();
+  await page.waitForSelector('#edTa', { timeout: 8000 });
+}
 
 async function testPostgresFlow(page) {
   const treeNode = text => page.locator('#tree .tnode').filter({ hasText: text }).first();
@@ -79,6 +97,7 @@ async function testPostgresFlow(page) {
 
 async function main() {
   if (!EXE || !fs.existsSync(EXE)) throw new Error('exe 不存在: ' + EXE);
+  const storeBackup = fs.existsSync(STORE_PATH) ? fs.readFileSync(STORE_PATH) : null;
 
   // 清理残留进程：WebView2 会复用同 user-data-dir 的浏览器进程，旧进程不带调试参数
   const { spawnSync } = require('child_process');
@@ -90,7 +109,7 @@ async function main() {
 
   // 预置环境配置：仅一个指向本地 mock 的环境，避免默认环境探测内网超时
   fs.mkdirSync(APPDATA_DIR, { recursive: true });
-  fs.writeFileSync(path.join(APPDATA_DIR, 'store.json'), JSON.stringify({
+  fs.writeFileSync(STORE_PATH, JSON.stringify({
     sqls_envs: [{ id: 'mock', name: 'Mock环境', color: '#5fad65', base: '127.0.0.1:9123', scheme: 'http' }],
     sqls_active_env: 'mock'
   }));
@@ -105,12 +124,20 @@ async function main() {
     await sleep(500);
     try { browser = await chromium.connectOverCDP(`http://127.0.0.1:${CDP_PORT}`); break; } catch (e) { }
   }
-  if (!browser) { child.kill(); throw new Error('无法连接 WebView2 CDP'); }
+  if (!browser) {
+    child.kill();
+    restoreStore(storeBackup);
+    throw new Error('无法连接 WebView2 CDP');
+  }
 
   try {
     const page = browser.contexts()[0].pages()[0];
     await page.waitForSelector('#topbar', { timeout: 10000 });
     check('应用启动，主界面渲染', true);
+    await page.click('#btnSidebarCollapse');
+    check('数据库侧边栏可收起', await page.locator('#main').evaluate(element => element.classList.contains('sidebar-collapsed')));
+    await page.click('#btnSidebarExpand');
+    check('数据库侧边栏可重新展开', await page.locator('#sidebar').isVisible());
 
     // 登录弹窗自动弹出（无会话、无记住密码）
     await page.waitForSelector('#loginMask.show', { timeout: 10000 });
@@ -186,9 +213,14 @@ async function main() {
     check('DDL 视图', ddlText.includes('CREATE TABLE') && !ddlText.includes('tk-id'), ddlText);
 
     // 控制台：多 SQL 编辑，选中时只执行选中内容
-    await page.click('[data-act="new-console"]');
+    await openNewConsole(page);
     await page.waitForSelector('#edTa', { timeout: 8000 });
     await page.fill('#edTa', MULTI_SQL);
+    await page.click('[data-act="toggle-console-menu"]');
+    await page.click('#consoleMenu [data-act="rename-console"]');
+    await page.fill('#renameConsoleInput', '业务查询控制台');
+    await page.click('#renameConsoleSubmit');
+    check('控制台重命名更新标签', (await page.locator('#tabbar .tab.active').textContent()).includes('业务查询控制台'));
     await page.locator('#edTa').evaluate((element, selectedSql) => {
       const start = element.value.indexOf(selectedSql);
       element.focus();
@@ -207,12 +239,27 @@ async function main() {
     const selectedStatusSql = (await page.textContent('#sbSql')).trim();
     check('状态栏回显实际执行的选中 SQL', selectedStatusSql === SELECTED_SQL.replace(/;$/, ''), selectedStatusSql);
 
-    // 关闭后重新打开，恢复完整编辑内容；无选区时拆分逐条执行全部 SQL
+    // 新建第二个控制台后，通过“所有”菜单切回第一个，确认各控制台 SQL 独立保留
     await sleep(500);
+    await openNewConsole(page);
+    check('新建控制台后保留原控制台标签', await page.locator('#tabbar .tab').count() >= 2);
+    await page.fill('#edTa', 'SELECT * FROM second_console;');
+    await sleep(500);
+    const consoleCount = await page.locator('#tabbar .tab').count();
     await page.click('#tabbar .tab.active [data-act="close-tab"]');
-    await page.click('[data-act="new-console"]');
-    await page.waitForSelector('#edTa', { timeout: 8000 });
-    check('重新打开控制台恢复 SQL 草稿', await page.inputValue('#edTa') === MULTI_SQL);
+    check('关闭控制台只关闭标签', await page.locator('#tabbar .tab').count() === consoleCount - 1);
+    await openConsoleFromAll(page, 1);
+    check('关闭控制台可从所有列表恢复 SQL', await page.inputValue('#edTa') === 'SELECT * FROM second_console;');
+    await page.click('[data-act="toggle-console-menu"]');
+    await page.click('#consoleMenu [data-act="show-all-consoles"]');
+    await page.locator('#consoleAllMenu [data-act="delete-console"]').nth(1).click();
+    const remainingConsoleCount = await page.locator('#tabbar .tab').count();
+    check('控制台删除图标永久移除记录', remainingConsoleCount === consoleCount - 1);
+    await page.click('[data-act="toggle-console-menu"]');
+    await page.click('#consoleMenu [data-act="open-default-console"]');
+    check('默认查询控制台不会重复创建', await page.locator('#tabbar .tab').count() === remainingConsoleCount);
+    await openConsoleFromAll(page, 0);
+    check('所有控制台菜单恢复原 SQL', await page.inputValue('#edTa') === MULTI_SQL);
     await page.click('[data-act="run-console"]');
     await page.waitForSelector('#conResults .res-tabs .res-tab:nth-child(2)', { timeout: 8000 });
     const tabCount = await page.locator('#conResults .res-tabs .res-tab').count();
@@ -231,9 +278,7 @@ async function main() {
 
     // 某条失败也继续执行其余条：第 1 条成功、第 2 条失败、第 3 条成功
     await sleep(500);
-    await page.click('#tabbar .tab.active [data-act="close-tab"]');
-    await page.click('[data-act="new-console"]');
-    await page.waitForSelector('#edTa', { timeout: 8000 });
+    await openNewConsole(page);
     await page.fill('#edTa', MIXED_SQL);
     await page.click('[data-act="run-console"]');
     await page.waitForSelector('#conResults .res-tabs .res-tab:nth-child(3)', { timeout: 8000 });
@@ -253,13 +298,20 @@ async function main() {
 
     // 历史按拆分粒度逐条落盘：最新在前（unshift）
     await sleep(500);
-    const store = JSON.parse(fs.readFileSync(path.join(APPDATA_DIR, 'store.json'), 'utf8'));
+    const store = JSON.parse(fs.readFileSync(STORE_PATH, 'utf8'));
     check('查询历史写入 KV', !!(store.sqls_history && store.sqls_history.mock && store.sqls_history.mock.length));
     // MIXED 三条 → mock[0..2]，选中执行一条 → mock[3]，无选区拆分两条 → mock[4..5]
     const hist = store.sqls_history.mock;
     check('历史按拆分粒度逐条记录', hist[0].sql === 'SELECT * FROM t_user' && hist[1].sql === 'SELECT FAIL' && hist[2].sql === 'SELECT 1', JSON.stringify(hist.slice(0, 3).map(h => h.sql)));
     check('历史含失败条目标记', hist[1].ok === false && hist[0].ok === true, '');
-    check('控制台草稿写入 KV', store.sqls_console_drafts.mock.sql === MIXED_SQL);
+    const consoles = store.sqls_console_sessions.mock.consoles;
+    check('全部打开控制台写入 KV', consoles.length === 2 && consoles.some(item => item.sql === MULTI_SQL)
+      && consoles.some(item => item.sql === MIXED_SQL), JSON.stringify(consoles.map(item => item.title)));
+    await page.reload();
+    await page.waitForSelector('[data-act="toggle-console-menu"]', { timeout: 8000 });
+    check('重载后恢复全部控制台标签', await page.locator('#tabbar .tab').count() === 2);
+    await openConsoleFromAll(page, 0);
+    check('重载后恢复控制台 SQL', await page.inputValue('#edTa') === MULTI_SQL);
     check('凭据标志写入 KV（密码不落盘）', store.sqls_creds && store.sqls_creds.mock
       && store.sqls_creds.mock.remember === true && !JSON.stringify(store.sqls_creds).includes('pass123'));
 
@@ -267,6 +319,7 @@ async function main() {
   } finally {
     try { await browser.close(); } catch (e) { }
     child.kill();
+    restoreStore(storeBackup);
   }
 
   const fail = results.filter(r => !r.ok).length;

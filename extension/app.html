@@ -28,15 +28,19 @@
   <button class="icon-btn" id="btnAbout" type="button" title="关于 SQL Studio" aria-label="关于 SQL Studio">ⓘ</button>
 </div>
 <div class="menu" id="envMenu"></div>
+<div class="menu console-menu" id="consoleMenu"></div>
+<div class="menu console-all-menu" id="consoleAllMenu"></div>
 
 <!-- 主体 -->
 <div id="main">
+  <div id="sidebarRail"><button class="icon-btn" id="btnSidebarExpand" title="展开数据库侧边栏" aria-label="展开数据库侧边栏">›</button></div>
   <div id="sidebar">
     <div class="panel-head">
       数据库
       <span class="grow"></span>
       <button class="icon-btn" id="btnRefreshTree" title="刷新">⟳</button>
       <button class="icon-btn" id="btnCollapse" title="全部折叠">⊟</button>
+      <button class="icon-btn" id="btnSidebarCollapse" title="收起数据库侧边栏" aria-label="收起数据库侧边栏">‹</button>
     </div>
     <div class="search-wrap"><input id="treeSearch" placeholder="搜索已加载的表…"></div>
     <div id="tree"></div>
@@ -108,6 +112,21 @@
   </div>
 </div>
 
+<!-- 控制台重命名弹窗 -->
+<div class="mask" id="renameConsoleMask">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="renameConsoleTitle">
+    <h3 id="renameConsoleTitle">重命名控制台</h3>
+    <div class="desc">修改后的名称会保存到当前环境的控制台列表。</div>
+    <label class="fl" for="renameConsoleInput">控制台名称</label>
+    <input type="text" id="renameConsoleInput" autocomplete="off" spellcheck="false">
+    <div class="err-line" id="renameConsoleErr"></div>
+    <div class="btnrow">
+      <button class="tbtn" id="renameConsoleCancel" type="button">取消</button>
+      <button class="tbtn primary" id="renameConsoleSubmit" type="button">保存</button>
+    </div>
+  </div>
+</div>
+
 <!-- 关于弹窗 -->
 <div class="mask" id="aboutMask">
   <div class="modal about-modal" role="dialog" aria-modal="true" aria-labelledby="aboutTitle">
@@ -124,6 +143,7 @@
     <div class="about-body">
       <div class="about-meta">
         <span class="k">客户端</span><span class="v">Chrome/Edge 扩展 · Manifest V3</span>
+        <span class="k">作者</span><span class="v">fanzhibiao</span>
         <span class="k">许可证</span><span class="v">MIT License</span>
       </div>
     </div>

@@ -50,7 +50,7 @@ Archery 使用 Django Cookie 会话。扩展需要读取 CSRF Cookie 并携带 S
 
 大表、复杂 WHERE 或缺少合适索引时，COUNT 可能增加数据库负载和等待时间；执行计划、超时、审核及权限仍由数据库和 Archery 控制。
 
-## 如何清理保存密码、历史和草稿？
+## 如何清理保存密码、历史和控制台工作区？
 
 见 [配置与本地数据](configuration.md)。仅删除桌面 exe 不会清除 Windows 凭据管理器和 AppData 配置。
 

@@ -2,11 +2,13 @@ import { api } from './lib/api.js';
 import * as store from './lib/store.js';
 import { formatSql, highlightSql, resolveSqlExecution, splitSql, SqlAutocomplete } from './lib/sql-editor.mjs';
 import { ICO } from './lib/icons.mjs';
-import { renderGrid } from './lib/grid.mjs';
-import { ConsoleDraftManager } from './lib/console-draft.mjs';
-import { buildCsv } from './lib/csv.mjs';
+import { ConsoleSessionManager } from './lib/console-session.mjs';
 import { bindAppEvents } from './lib/app-events.mjs';
 import { bindAboutDialog } from './lib/about-dialog.mjs';
+import { executeConsoleStatement, fetchConsolePage } from './lib/console-execution.mjs';
+import { renderConsoleResultView } from './lib/console-result-view.mjs';
+import { createCsvExportActions } from './lib/csv-export-actions.mjs';
+import { saveCsvText } from './lib/csv-save.mjs';
 import { renderResourceTree } from './lib/resource-tree-view.mjs';
 import { renderTableView, resolveTableSubview } from './lib/table-view.mjs';
 import {
@@ -16,26 +18,28 @@ import {
   isPostgresType,
   parseCountTotal,
 } from './lib/db-context.mjs';
+import { renderTabBarView, showAllConsolesMenu, showConsoleMenu } from './lib/console-menu-view.mjs';
+import { ConsoleRenameController } from './lib/console-rename.mjs';
+import { closeWorkspaceTab, consoleSessionState, createNewConsole, defaultConsoleTab, deleteWorkspaceConsole, restoreConsoleWorkspace } from './lib/console-workspace.mjs';
 const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const attr = s => String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-/* mysql column_type 中的数值类型（用于右对齐） */
-const NUM_TYPES = new Set(['TINY', 'SHORT', 'LONG', 'LONGLONG', 'INT24', 'FLOAT', 'DOUBLE', 'DECIMAL', 'NEWDECIMAL', 'YEAR', 'BIT']);
-const isNumType = t => NUM_TYPES.has(String(t || '').toUpperCase());
-const QUERY_RESULT_LIMIT = 1_000_000;
 /* ================= 状态 ================= */
 const state = {
   envs: [], activeEnvId: null, env: null, origin: '',
   connected: false, connecting: false, user: '',
   instances: [], tree: [],
-  tabs: [], activeTabId: null, tabSeq: 0, consoleSeq: 0,
+  sidebarCollapsed: false,
+  tabs: [], activeTabId: null, activeConsoleKey: null, tabSeq: 0, consoleSeq: 0,
   uidSeq: 0, nodeMap: new Map(),
   treeSel: null, // 与控制台联动的高亮 {inst, db, schema}
   lastCtx: null, // 最近浏览的上下文 {inst, db, schema}，新建控制台时继承
-  consoleDraft: null,
 };
 const $ = id => document.getElementById(id);
 const curTab = () => state.tabs.find(t => t.id === state.activeTabId) || null;
-const consoleDraftManager = new ConsoleDraftManager({ store, onError: reportConsoleDraftError });
+const isCurrentEnv = (env, origin) => !!env && env.id === state.activeEnvId && origin === state.origin;
+const consoleSessionManager = new ConsoleSessionManager({ store, onError: reportConsoleSessionError });
+const csvActions = createCsvExportActions({ api, getOrigin: () => state.origin, saveText: (name, csv) => saveCsvText(api, name, csv), toast });
+const consoleRename = new ConsoleRenameController({ getEnvId: () => state.activeEnvId, getConsoles: () => state.tabs, persist: persistConsoleSession, renderTabs, hideMenus, openModal, closeModal });
 const autocomplete = new SqlAutocomplete({
   api,
   getContext: () => {
@@ -51,10 +55,9 @@ const autocomplete = new SqlAutocomplete({
     } : null;
   },
   onEditorChange: syncEditor,
-  onWhereChange: value => { const tab = curTab(); if (tab) tab.where = value; },
+  onWhereChange: value => { const tab = curTab(); if (tab) tab.whereDraft = value; },
   onError: (message, error) => console.error('[SQL Studio] ' + message, error),
 });
-
 /* ================= 初始化 ================= */
 async function init() {
   bindStatic();
@@ -66,13 +69,15 @@ async function init() {
   await applyEnv(state.activeEnvId);
   await ensureConnected();
 }
-
 function bindStatic() {
+  consoleRename.bind();
   $('envBtn').addEventListener('click', e => { e.stopPropagation(); toggleEnvMenu(); });
   $('btnEnvMgr').addEventListener('click', openEnvMgr);
   $('btnRelogin').addEventListener('click', () => openLogin());
   $('btnRefreshTree').addEventListener('click', refreshTree);
   $('btnCollapse').addEventListener('click', collapseAll);
+  $('btnSidebarCollapse').addEventListener('click', () => setSidebarCollapsed(true));
+  $('btnSidebarExpand').addEventListener('click', () => setSidebarCollapsed(false));
   $('treeSearch').addEventListener('input', renderTree);
   $('loginEnv').addEventListener('change', onLoginEnvChange);
   $('loginScheme').addEventListener('change', updateLoginEnvUrl);
@@ -84,14 +89,18 @@ function bindStatic() {
   $('envMgrCancel').addEventListener('click', () => closeModal('envMgrMask'));
   $('envMgrSave').addEventListener('click', saveEnvMgr);
   bindAboutDialog({ api, toast });
-  document.addEventListener('click', () => hideMenus());
+  document.addEventListener('click', event => { if (!event.target.closest('#consoleMenu, #consoleAllMenu, [data-act="toggle-console-menu"]')) hideMenus(); });
+  window.addEventListener('pagehide', () => consoleSessionManager.flush().catch(reportConsoleSessionError));
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') consoleSessionManager.flush().catch(reportConsoleSessionError);
+  });
   document.addEventListener('focusout', e => { if (autocomplete.isOpenFor(e.target)) setTimeout(() => autocomplete.hide(), 100); });
   document.querySelectorAll('.mask').forEach(m =>
     m.addEventListener('click', e => { if (e.target === m) closeModal(m.id); }));
 }
-
 /* ================= 环境 ================= */
 async function applyEnv(id) {
+  await consoleSessionManager.flush();
   const env = state.envs.find(e => e.id === id) || state.envs[0];
   state.env = env;
   state.activeEnvId = env ? env.id : null;
@@ -101,19 +110,23 @@ async function applyEnv(id) {
   state.tree = [];
   state.tabs = [];
   state.activeTabId = null;
+  state.activeConsoleKey = null;
   state.treeSel = null;
   state.lastCtx = null;
-  state.consoleDraft = null;
   if (env) {
     await store.setActiveEnvId(env.id);
-    state.consoleDraft = await consoleDraftManager.load(env.id);
+    const restored = restoreConsoleWorkspace(await consoleSessionManager.load(env.id), state.tabSeq);
+    state.tabs = restored.tabs;
+    state.activeTabId = restored.activeTabId;
+    state.tabSeq = restored.tabSeq;
+    state.consoleSeq = restored.nextSequence;
+    state.activeConsoleKey = curTab() ? curTab().consoleKey : null;
   }
   renderEnvUI();
   renderTabs();
   renderBody();
   renderTree();
 }
-
 function renderEnvUI() {
   const e = state.env;
   if (!e) return;
@@ -132,7 +145,6 @@ function renderEnvUI() {
     $('connText').textContent = '未连接';
   }
 }
-
 function toggleEnvMenu() {
   const m = $('envMenu');
   if (m.classList.contains('show')) { m.classList.remove('show'); return; }
@@ -147,43 +159,44 @@ function toggleEnvMenu() {
   m.classList.add('show');
 }
 function hideMenus() { document.querySelectorAll('.menu').forEach(m => m.classList.remove('show')); }
-
 async function switchEnv(id) {
   hideMenus();
   if (id === state.activeEnvId && state.connected) return;
   await applyEnv(id);
   await ensureConnected();
 }
-
 /** 确保当前环境已连接：先探测已有会话，再尝试记住的密码，否则弹登录 */
 async function ensureConnected() {
   if (!state.env) return;
+  const env = state.env; const origin = state.origin;
   state.connecting = true; renderEnvUI(); renderTree();
   // 1. 已有会话
   try {
-    await api.checkSession(state.origin);
-    const cred = await store.getCred(state.env.id);
+    await api.checkSession(origin);
+    if (!isCurrentEnv(env, origin)) return;
+    const cred = await store.getCred(env.id);
+    if (!isCurrentEnv(env, origin)) return;
     state.user = cred.user || '';
     await onConnected();
     return;
-  } catch (e) { /* 未登录，继续 */ }
+  } catch (e) { if (!isCurrentEnv(env, origin)) return; }
   // 2. 记住的密码自动登录
-  const cred = await store.getCred(state.env.id);
+  const cred = await store.getCred(env.id);
   if (cred.remember && cred.password) {
     try {
-      await api.login(state.origin, cred.user, cred.password);
+      await api.login(origin, cred.user, cred.password);
+      if (!isCurrentEnv(env, origin)) return;
       state.user = cred.user;
       await onConnected();
-      toast('已使用保存的凭据自动登录 ' + state.env.name, 'ok');
+      toast('已使用保存的凭据自动登录 ' + env.name, 'ok');
       return;
-    } catch (e) { /* 自动登录失败，弹登录 */ }
+    } catch (e) { if (!isCurrentEnv(env, origin)) return; }
   }
   // 3. 弹登录
   state.connecting = false;
   renderEnvUI(); renderTree();
   openLogin();
 }
-
 async function onConnected() {
   state.connected = true;
   state.connecting = false;
@@ -191,7 +204,6 @@ async function onConnected() {
   renderBody();
   await loadInstances();
 }
-
 /* ================= 登录 ================= */
 function openLogin(envId) {
   const target = envId || state.activeEnvId;
@@ -264,7 +276,6 @@ async function doLogin() {
     btn.disabled = false; btn.textContent = '登 录';
   }
 }
-
 /* ================= 环境管理 ================= */
 async function openEnvMgr() {
   hideMenus();
@@ -334,7 +345,6 @@ async function delEnvRow(envId) {
   const flags = await store.getRememberFlags();
   renderEnvMgrRows(rows, flags);
 }
-
 /* ================= 树 ================= */
 function makeNode(kind, name, extra) {
   const uid = 'n' + (state.uidSeq++);
@@ -343,12 +353,17 @@ function makeNode(kind, name, extra) {
   return node;
 }
 async function loadInstances() {
+  const envId = state.activeEnvId; const origin = state.origin;
   try {
-    const list = await api.instances(state.origin);
+    const list = await api.instances(origin);
+    if (envId !== state.activeEnvId || origin !== state.origin) return;
     state.instances = list;
     state.tree = list.map(inst => makeNode('instance', inst.instance_name, { dbType: inst.db_type, instType: inst.type, dbs: null }));
     renderTree();
+    const tab = curTab();
+    if (tab && tab.type === 'console' && tab.instance) await loadConsoleDbs(tab);
   } catch (e) {
+    if (envId !== state.activeEnvId || origin !== state.origin) return;
     state.connected = false;
     renderEnvUI();
     renderTree(e.message);
@@ -364,7 +379,12 @@ function collapseAll() {
   state.nodeMap.forEach(n => { n.expanded = false; if (n.open) n.open = { cols: false, keys: false, idx: false }; });
   renderTree();
 }
-
+function setSidebarCollapsed(collapsed) {
+  if (collapsed && $('sidebar').contains(document.activeElement)) document.activeElement.blur();
+  hideMenus(); state.sidebarCollapsed = collapsed;
+  $('main').classList.toggle('sidebar-collapsed', collapsed);
+  $(collapsed ? 'btnSidebarExpand' : 'btnSidebarCollapse').focus();
+}
 async function toggleNode(uid) {
   const node = state.nodeMap.get(uid);
   if (!node) return;
@@ -438,7 +458,6 @@ async function loadTableMeta(node) {
   } catch (e) { node.error = e.message; node.meta = null; }
   node.loading = false; renderTree();
 }
-
 function renderTree(errMsg) {
   const box = $('tree');
   const filter = $('treeSearch').value.trim().toLowerCase();
@@ -457,7 +476,6 @@ function toggleFolder(uid, fold) {
   const tb = state.nodeMap.get(uid);
   if (tb && tb.open) { tb.open[fold] = !tb.open[fold]; renderTree(); }
 }
-
 /* ---- 控制台 ↔ 树 联动 ---- */
 /** 控制台选择实例/数据库/模式后，展开并高亮左侧树对应节点 */
 async function syncTreeToConsole(tab) {
@@ -507,13 +525,12 @@ function syncConsoleToTree(node) {
   if (instChanged) t.dbs = null;
   if (dbChanged) t.schemas = null;
   state.treeSel = { inst: node.inst, db, schema };
-  scheduleConsoleDraft(t);
+  scheduleConsoleSession(t);
   if (t.dbs == null) loadConsoleDbs(t);
   else if (isPostgresType(t.dbType) && t.schemas == null) loadConsoleSchemas(t);
   else renderConsole(t, $('tabbody'));
   renderTree();
 }
-
 /* ================= 标签页 ================= */
 function openTableNode(uid) {
   const node = state.nodeMap.get(uid);
@@ -536,7 +553,7 @@ function openTable(options) {
   const tab = {
     id: ++state.tabSeq, type: 'table', instance, db, schema, dbType, table,
     subview: 'data', meta: meta || null, metaLoading: false, metaErr: '',
-    where: '', orderBy: [], page: 1, pageSize: 100, colW: {},
+    where: '', whereDraft: '', orderBy: [], page: 1, pageSize: 100, colW: {},
     data: null, dataLoading: false, dataErr: '', totalRows: null, totalLoading: false,
     totalErr: '', pageCount: null, hasNext: false, dataRequestId: 0, sql: '',
   };
@@ -545,52 +562,56 @@ function openTable(options) {
   ensureTableLoaded(tab);
 }
 function newConsole(presetSql) {
-  // 继承当前上下文：优先当前表标签页，其次树上最近点击的库/模式/表
-  const cur = curTab();
-  const draft = typeof presetSql === 'string' ? null : state.consoleDraft;
-  let inst = '', db = '', schema = '', dbType = '';
-  if (cur && cur.type === 'table') {
-    inst = cur.instance; db = cur.db; schema = cur.schema || ''; dbType = cur.dbType || '';
-  } else if (state.lastCtx) {
-    inst = state.lastCtx.inst; db = state.lastCtx.db; schema = state.lastCtx.schema || '';
-  } else if (draft) {
-    inst = draft.instance; db = draft.db; schema = draft.schema || ''; dbType = draft.dbType || '';
-  }
-  if (!inst) inst = state.instances[0] ? state.instances[0].instance_name : '';
-  if (!dbType) dbType = findDbType(state.instances, inst);
-  const tab = {
-    id: ++state.tabSeq, type: 'console', title: '控制台-' + (++state.consoleSeq),
-    instance: inst, db, schema, dbType, dbs: null, schemas: null, contextErr: '',
-    sql: typeof presetSql === 'string' ? presetSql : (draft ? draft.sql : 'SELECT 1;'),
-    results: null, activeResult: 0, running: false, colW: {}, edH: 172,
-  };
-  state.tabs.push(tab);
-  activateTab(tab.id);
-  if (tab.instance) loadConsoleDbs(tab);
+  const created = createNewConsole({
+    id: ++state.tabSeq,
+    sequence: state.consoleSeq,
+    currentTab: curTab(),
+    lastContext: state.lastCtx,
+    instances: state.instances,
+    findDbType,
+    presetSql,
+  });
+  state.consoleSeq = created.nextSequence;
+  state.tabs.push(created.tab);
+  activateTab(created.tab.id);
+}
+function openDefaultConsole() {
+  const consoleTab = defaultConsoleTab(state.tabs);
+  if (consoleTab) activateTab(consoleTab.id);
+  else newConsole();
 }
 function closeTab(id) {
-  const idx = state.tabs.findIndex(t => t.id === id);
-  if (idx < 0) return;
-  state.tabs.splice(idx, 1);
-  if (state.activeTabId === id) state.activeTabId = state.tabs.length ? state.tabs[Math.max(0, idx - 1)].id : null;
+  const closed = closeWorkspaceTab({ tabs: state.tabs, id, activeTabId: state.activeTabId, activeConsoleKey: state.activeConsoleKey });
+  if (!closed) return;
+  state.tabs = closed.tabs; state.activeTabId = closed.activeTabId; state.activeConsoleKey = closed.activeConsoleKey;
+  if (closed.closed.type === 'console') persistConsoleSession();
   renderTabs(); renderBody();
 }
-function activateTab(id) { state.activeTabId = id; renderTabs(); renderBody(); }
-
-function renderTabs() {
-  let h = '';
-  for (const t of state.tabs) {
-    const icon = t.type === 'console' ? `<span class="c-idx">${ICO.console}</span>` : `<span class="c-table">${ICO.table}</span>`;
-    const tableContext = t.schema ? t.db + '.' + t.schema : t.db;
-    const title = t.type === 'console' ? esc(t.title) : `${esc(t.table)} <span class="tdb">${esc(tableContext)}</span>`;
-    const tablePath = t.schema ? t.db + '.' + t.schema + '.' + t.table : t.db + '.' + t.table;
-    h += `<div class="tab ${t.id === state.activeTabId ? 'active' : ''}" data-act="tab" data-id="${t.id}" title="${t.type === 'table' ? attr(t.instance + ' · ' + tablePath) : ''}">
-      ${icon}<span>${title}</span><span class="x" data-act="close-tab" data-id="${t.id}">✕</span></div>`;
-  }
-  h += `<button class="icon-btn add" data-act="new-console" title="新建查询控制台">＋</button>`;
-  $('tabbar').innerHTML = h;
+function deleteConsole(id) {
+  const deleted = deleteWorkspaceConsole({ tabs: state.tabs, id, activeTabId: state.activeTabId, activeConsoleKey: state.activeConsoleKey });
+  if (!deleted) return;
+  state.tabs = deleted.tabs; state.activeTabId = deleted.activeTabId; state.activeConsoleKey = deleted.activeConsoleKey;
+  persistConsoleSession(); renderTabs(); renderBody();
 }
-
+function activateTab(id) {
+  const tab = state.tabs.find(candidate => candidate.id === id);
+  if (!tab) return;
+  state.activeTabId = id;
+  if (tab.type === 'console') {
+    tab.open = true;
+    state.activeConsoleKey = tab.consoleKey;
+    persistConsoleSession();
+    if (tab.instance && tab.dbs == null && state.instances.length) loadConsoleDbs(tab);
+  }
+  renderTabs(); renderBody();
+}
+function renderTabs() { $('tabbar').innerHTML = renderTabBarView({ tabs: state.tabs, activeTabId: state.activeTabId, consoleIcon: ICO.console, tableIcon: ICO.table }); }
+function toggleConsoleMenu(button) {
+  showConsoleMenu({ button, tabs: state.tabs, activeTabId: state.activeTabId, activeConsoleKey: state.activeConsoleKey, hideMenus });
+}
+function toggleAllConsolesMenu(button) {
+  showAllConsolesMenu({ button, tabs: state.tabs, activeTabId: state.activeTabId, activeConsoleKey: state.activeConsoleKey });
+}
 /* ================= 主体渲染 ================= */
 function setStatus(ok, text) {
   const el = $('sbStatus');
@@ -606,13 +627,12 @@ function renderBody() {
   $('sbCell').textContent = '';
   setStatus(true, undefined);
   if (!tab) {
-    body.innerHTML = `<div class="center-view">${ICO.db}<div class="big">${state.connected ? '点击左侧表打开数据浏览，或点击标签栏 ＋ 新建查询控制台' : '请先连接 Archery 环境'}</div></div>`;
+    body.innerHTML = `<div class="center-view">${ICO.db}<div class="big">${state.connected ? '点击左侧表打开数据浏览，或点击标签栏左侧控制台图标新建查询' : '请先连接 Archery 环境'}</div></div>`;
     return;
   }
   if (tab.type === 'console') return renderConsole(tab, body);
   return renderTableTab(tab, body);
 }
-
 /* ---- 表：数据/结构/DDL ---- */
 function ensureTableLoaded(tab) {
   ensureMeta(tab);
@@ -676,11 +696,6 @@ function renderTableTab(tab, body) {
     $('sbTime').textContent = view.status.elapsed;
   }
 }
-
-function fmtSec(s) { return (typeof s === 'number' ? s.toFixed(4) : s || '0') + ' s'; }
-function errorBox(title, msg) {
-  return `<div class="center-view"><div class="error-box"><div class="et">⚠ ${esc(title)}</div><div>${esc(msg)}</div></div></div>`; }
-
 /* ---- 控制台 ---- */
 async function loadConsoleDbs(tab) {
   const instance = tab.instance;
@@ -722,7 +737,7 @@ async function loadConsoleSchemas(tab) {
   finishConsoleContextLoad(tab);
 }
 function finishConsoleContextLoad(tab) {
-  scheduleConsoleDraft(tab);
+  scheduleConsoleSession(tab);
   if (curTab() === tab) renderConsole(tab, $('tabbody'));
   syncTreeToConsole(tab);
 }
@@ -731,15 +746,15 @@ function renderConsole(tab, body) {
   const dbOpts = (tab.dbs || []).map(d => `<option ${d === tab.db ? 'selected' : ''}>${esc(d)}</option>`).join('') || '<option value="">（选择实例后加载）</option>';
   const schemaOpts = (tab.schemas || []).map(schema => `<option ${schema === tab.schema ? 'selected' : ''}>${esc(schema)}</option>`).join('') || '<option value="">（无模式）</option>';
   const schemaSelect = isPostgresType(tab.dbType)
-    ? `<span class="lb">模式</span><select data-act="con-schema">${schemaOpts}</select>`
+    ? `<span class="lb">模式</span><select class="con-schema-select" data-act="con-schema">${schemaOpts}</select>`
     : '';
   const contextError = tab.contextErr ? `<span class="err" title="${attr(tab.contextErr)}">⚠ ${esc(tab.contextErr)}</span>` : '';
   body.innerHTML = `<div class="console">
     <div class="con-toolbar">
       <span class="lb">实例</span>
-      <select data-act="con-instance">${instOpts}</select>
+      <select class="con-instance-select" data-act="con-instance">${instOpts}</select>
       <span class="lb">数据库</span>
-      <select data-act="con-db">${dbOpts}</select>
+      <select class="con-db-select" data-act="con-db">${dbOpts}</select>
       ${schemaSelect}
       ${contextError}
       <span class="grow"></span>
@@ -766,50 +781,22 @@ function renderConsole(tab, body) {
 }
 function syncEditor(ta) {
   const tab = curTab(); if (tab) tab.sql = ta.value;
-  if (tab && tab.type === 'console') scheduleConsoleDraft(tab);
+  if (tab && tab.type === 'console') scheduleConsoleSession(tab);
   $('edHl').innerHTML = highlightSql(ta.value) + '\n';
   const lines = ta.value.split('\n').length;
   $('edGutter').innerHTML = Array.from({ length: lines }, (_, i) => `<div>${i + 1}</div>`).join('');
 }
 function renderConsoleResult(tab) {
   const box = $('conResults');
-  const results = tab.results || [];
-  const idx = Number.isInteger(tab.activeResult) ? Math.min(tab.activeResult, results.length - 1) : results.length - 1;
-  if (tab.running && !results.length) { box.innerHTML = `<div class="center-view"><div class="spinner"></div><div>正在执行…</div></div>`; return; }
-  if (!results.length && !tab.running) {
-    box.innerHTML = `<div class="res-empty">${ICO.console}<div>按 <kbd>Ctrl + Enter</kbd> 或点击「▶ 执行」运行 SQL</div></div>`;
-    return;
-  }
-  // 顶部结果标签栏：每条 SQL 一个 tab，点击切换；含成功/失败状态点
-  const tabsHtml = results.map((r, i) => {
-    const active = i === idx ? ' active' : '';
-    const dot = r.ok ? '<span class="rt-dot ok"></span>' : '<span class="rt-dot bad"></span>';
-    const meta = r.ok ? `${r.rows.length} 行 · ${fmtSec(r.elapsed)}` : '失败';
-    return `<span class="res-tab${active}" data-act="res-tab" data-i="${i}" title="${attr(r.sql)}">${dot}结果 ${i + 1}<span class="rt-meta">${meta}</span></span>`;
-  }).join('');
-  const r = results[idx];
-  const headMeta = r.ok
-    ? `${r.rows.length} 行 · ${fmtSec(r.elapsed)}${r.isMasked ? ' · 已脱敏' : ''}${tab.executedSelection ? ' · 已执行选中内容' : ''}`
-    : `执行失败${tab.executedSelection ? ' · 已执行选中内容' : ''}`;
-  let body;
-  if (r.ok) {
-    const cols = r.columns.map((name, i) => ({ name, type: r.types[i] || '', num: isNumType(r.types[i]) }));
-    body = `<div class="gridwrap">${renderGrid(cols, r.rows, { widths: tab.colW })}</div>`;
-  } else {
-    body = errorBox('第 ' + (idx + 1) + ' 条执行失败', r.error);
-  }
-  box.innerHTML = `<div class="res-tabs">${tabsHtml}</div>
-    <div class="res-head">
-      <span class="res-meta">${headMeta}</span>
-      <span class="grow" style="flex:1"></span>
-      <button class="tbtn" data-act="export-csv-con"${r.ok ? '' : ' disabled'}>⤓ CSV</button>
-    </div>
-    ${body}`;
-  $('sbSql').textContent = (r.fullSql || r.sql || tab.sql).replace(/\s+/g, ' ');
-  $('sbTime').textContent = r.ok ? fmtSec(r.elapsed) : '';
-  setStatus(r.ok, r.ok ? '200 OK' : '执行失败');
+  const view = renderConsoleResultView(tab);
+  box.innerHTML = view.html;
+  if (!view.status) return;
+  $('sbSql').textContent = view.sql;
+  $('sbTime').textContent = view.elapsed;
+  setStatus(view.status.ok, view.status.text);
 }
 async function runConsole(tab) {
+  if (tab.running) return;
   if (!tab.instance) { toast('请先选择实例（需先登录）', 'err'); return; }
   if (!tab.db) { toast('请选择数据库', 'err'); return; }
   if (isPostgresType(tab.dbType) && !tab.schema) { toast('请选择模式', 'err'); return; }
@@ -819,34 +806,30 @@ async function runConsole(tab) {
   const execution = resolveSqlExecution({ sql: tab.sql, selectionStart: selStart, selectionEnd: selEnd });
   if (!execution.sql.trim()) { toast('请输入要执行的 SQL', 'err'); return; }
   // Archery 的 /query/ 一次只处理一条 SQL：拆开后顺序执行，某条失败也继续跑其余条
-  const statements = splitSql(execution.sql);
+  const context = Object.freeze({
+    instance: tab.instance,
+    db: tab.db,
+    schema: tab.schema || '',
+    dbType: tab.dbType || '',
+  });
+  const origin = state.origin;
+  const envId = state.env.id;
+  const statements = splitSql(execution.sql, { dbType: context.dbType });
   if (!statements.length) { toast('请输入要执行的 SQL', 'err'); return; }
   tab.executedSql = execution.sql; tab.executedSelection = execution.selectionUsed;
   tab.results = []; tab.activeResult = 0; tab.running = true;
   renderConsoleResult(tab);
   for (let i = 0; i < statements.length; i++) {
     const sql = statements[i];
-    const item = { sql, ok: false, columns: [], types: [], rows: [], elapsed: 0, fullSql: sql, isMasked: false, error: '' };
-    try {
-      const res = await api.query(state.origin, {
-        instance: tab.instance,
-        db: tab.db,
-        schema: tab.schema || '',
-        sql,
-        limit: QUERY_RESULT_LIMIT,
-      });
-      item.ok = true;
-      item.columns = res.columns; item.types = res.types; item.rows = res.rows;
-      item.elapsed = res.elapsed; item.fullSql = res.fullSql || sql; item.isMasked = res.isMasked;
-    } catch (e) { item.error = e.message; }
+    const item = await executeConsoleStatement({ api, origin, context, sql });
     tab.results.push(item);
     tab.activeResult = tab.results.length - 1;
-    await store.addHistory(state.env.id, {
+    await store.addHistory(envId, {
       sql,
-      instance: tab.instance,
-      db: tab.db,
-      schema: tab.schema || '',
-      dbType: tab.dbType || '',
+      instance: item.context.instance,
+      db: item.context.db,
+      schema: item.context.schema,
+      dbType: item.context.dbType,
       ok: item.ok,
       elapsed: item.elapsed,
     });
@@ -860,15 +843,41 @@ async function runConsole(tab) {
     if (ta && ta.value === tab.sql) { ta.focus(); ta.setSelectionRange(selStart, selEnd); }
   }
 }
+async function reloadConsolePage(options) {
+  const tab = state.tabs.find(candidate => candidate.id === options.tabId);
+  const result = tab && tab.results && tab.results[options.resultIndex];
+  if (!result || !result.pageable || result.dataLoading) return;
+  const maxPage = Number.isSafeInteger(result.pageCount) ? result.pageCount : options.page;
+  const page = Math.min(Math.max(options.page, 1), Math.max(maxPage, 1));
+  const loading = { ...result, dataLoading: true, dataErr: '' };
+  tab.results = tab.results.map((item, index) => index === options.resultIndex ? loading : item);
+  if (curTab() === tab) renderConsoleResult(tab);
+  let next;
+  try {
+    next = await fetchConsolePage({ api, origin: state.origin, result, page, pageSize: options.pageSize });
+  } catch (error) {
+    next = { ...result, dataLoading: false, dataErr: error.message };
+  }
+  if (tab.results[options.resultIndex] !== loading) return;
+  tab.results = tab.results.map((item, index) => index === options.resultIndex ? next : item);
+  if (curTab() === tab) renderConsoleResult(tab);
+}
 function beautify(tab) {
   tab.sql = formatSql(tab.sql);
-  scheduleConsoleDraft(tab);
+  scheduleConsoleSession(tab);
   renderConsole(tab, $('tabbody'));
 }
-
-function scheduleConsoleDraft(tab) {
-  if (!tab || tab.type !== 'console' || !state.activeEnvId) return;
-  state.consoleDraft = consoleDraftManager.schedule(state.activeEnvId, tab);
+function scheduleConsoleSession(tab) {
+  if (!tab || tab.type !== 'console' || !state.tabs.includes(tab)) return;
+  persistConsoleSession();
+}
+function persistConsoleSession() {
+  if (!state.activeEnvId) return;
+  consoleSessionManager.schedule(state.activeEnvId, consoleSessionState({
+    tabs: state.tabs,
+    activeConsoleKey: state.activeConsoleKey,
+    nextSequence: state.consoleSeq,
+  }));
 }
 
 function changeConsoleInstance(tab, instance) {
@@ -879,7 +888,7 @@ function changeConsoleInstance(tab, instance) {
   tab.dbs = null;
   tab.schemas = null;
   tab.contextErr = '';
-  scheduleConsoleDraft(tab);
+  scheduleConsoleSession(tab);
   loadConsoleDbs(tab);
 }
 
@@ -888,7 +897,7 @@ function changeConsoleDatabase(tab, db) {
   tab.schema = '';
   tab.schemas = null;
   tab.contextErr = '';
-  scheduleConsoleDraft(tab);
+  scheduleConsoleSession(tab);
   if (isPostgresType(tab.dbType) && db) loadConsoleSchemas(tab);
   else {
     tab.schemas = [];
@@ -899,24 +908,11 @@ function changeConsoleDatabase(tab, db) {
 
 function changeConsoleSchema(tab, schema) {
   tab.schema = schema;
-  scheduleConsoleDraft(tab);
+  scheduleConsoleSession(tab);
   syncTreeToConsole(tab);
 }
 
-function reportConsoleDraftError(error) { console.error('[SQL Studio] 控制台草稿保存失败', error); toast('控制台内容保存失败：' + error.message, 'err'); }
-
-/* ---- CSV ---- */
-function exportCsv(cols, rows, name) {
-  const csv = buildCsv(cols, rows);
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = (name || 'export') + '.csv';
-  document.body.appendChild(a); a.click(); a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-  toast('已导出 ' + rows.length + ' 行为 CSV', 'ok');
-}
-
+function reportConsoleSessionError(error) { console.error('[SQL Studio] 控制台会话保存失败', error); toast('控制台内容保存失败：' + error.message, 'err'); }
 /* ================= 事件委托 ================= */
 function bindDelegation() {
   bindAppEvents({
@@ -936,6 +932,12 @@ function bindDelegation() {
     activateTab,
     closeTab,
     newConsole,
+    openDefaultConsole,
+    openRenameConsole: id => consoleRename.open(id),
+    deleteConsole,
+    toggleConsoleMenu,
+    toggleAllConsolesMenu,
+    persistConsoleSession,
     renderBody,
     ensureMeta,
     applyWhere,
@@ -945,7 +947,9 @@ function bindDelegation() {
     runConsole,
     renderConsoleResult,
     beautify,
-    exportCsv,
+    exportTableCsv: csvActions.exportTableCsv,
+    exportConsoleCsv: csvActions.exportConsoleCsv,
+    reloadConsolePage,
     selectCell,
     syncEditor,
     changeConsoleInstance,
@@ -958,7 +962,7 @@ function bindDelegation() {
 function applyWhere(tab) {
   const input = document.querySelector('[data-act=where-input]');
   if (!tab || !input) return;
-  tab.where = input.value.trim();
+  tab.where = input.value.trim(); tab.whereDraft = tab.where;
   tab.page = 1;
   reloadData(tab);
 }

@@ -9,6 +9,7 @@ const KEY_ACTIVE = 'sqls_active_env';
 const KEY_CREDS = 'sqls_creds';       // { [envId]: { user, encPwd, remember } }
 const KEY_HISTORY = 'sqls_history';   // { [envId]: [ {sql, instance, db, schema, dbType, ts, ok, elapsed} ] }
 const KEY_CONSOLE_DRAFTS = 'sqls_console_drafts'; // { [envId]: {sql, instance, db, schema, dbType, updatedAt} }
+const KEY_CONSOLE_SESSIONS = 'sqls_console_sessions'; // { [envId]: {consoles, activeConsoleKey, nextSequence} }
 const HISTORY_LIMIT = 100;
 
 /** 默认内置环境来自扩展根目录的 default-envs.json（base 为域名或 IP:端口，不含协议）。
@@ -184,19 +185,21 @@ export async function getConsoleDraft(envId) {
     };
 }
 
-export async function saveConsoleDraft(envId, draft) {
-    const { [KEY_CONSOLE_DRAFTS]: storedDrafts } = await get(KEY_CONSOLE_DRAFTS);
-    await set({
-        [KEY_CONSOLE_DRAFTS]: {
-            ...(storedDrafts || {}),
-            [envId]: {
-                sql: draft.sql,
-                instance: draft.instance,
-                db: draft.db,
-                schema: draft.schema,
-                dbType: draft.dbType,
-                updatedAt: draft.updatedAt,
-            },
-        },
-    });
+/* ---------------- 控制台会话 ---------------- */
+
+export async function getConsoleSession(envId) {
+    const { [KEY_CONSOLE_SESSIONS]: sessions } = await get(KEY_CONSOLE_SESSIONS);
+    if (sessions == null) return null;
+    if (!sessions || typeof sessions !== 'object' || Array.isArray(sessions)) {
+        throw new Error('本地控制台会话格式无效');
+    }
+    return Object.hasOwn(sessions, envId) ? sessions[envId] : null;
+}
+
+export async function saveConsoleSession(envId, session) {
+    const { [KEY_CONSOLE_SESSIONS]: stored } = await get(KEY_CONSOLE_SESSIONS);
+    if (stored != null && (!stored || typeof stored !== 'object' || Array.isArray(stored))) {
+        throw new Error('本地控制台会话格式无效');
+    }
+    await set({ [KEY_CONSOLE_SESSIONS]: { ...(stored || {}), [envId]: session } });
 }

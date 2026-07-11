@@ -259,29 +259,48 @@ function skipQuotedSqlToken(text, start) {
   return text.length;
 }
 
-function skipSqlToken(text, index) {
-  const current = text[index];
-  const next = text[index + 1];
-  if ((current === '-' && next === '-') || current === '#') {
-    const lineEnd = text.indexOf('\n', index);
-    return lineEnd < 0 ? text.length : lineEnd;
-  }
-  if (current === '/' && next === '*') {
-    const close = text.indexOf('*/', index + 2);
-    return close < 0 ? text.length : close + 2;
-  }
-  if (current === '\'' || current === '"' || current === '`') {
-    return skipQuotedSqlToken(text, index);
+function skipSqlBlockComment(text, start) {
+  let depth = 1;
+  let index = start + 2;
+  while (index < text.length && depth > 0) {
+    if (text[index] === '/' && text[index + 1] === '*') { depth += 1; index += 2; continue; }
+    if (text[index] === '*' && text[index + 1] === '/') { depth -= 1; index += 2; continue; }
+    index += 1;
   }
   return index;
 }
 
-function scanSqlStatementRanges(text) {
+function sqlDollarQuoteTag(text, start) {
+  const match = text.slice(start).match(/^\$(?:[A-Za-z_][\w$]*)?\$/);
+  return match ? match[0] : '';
+}
+
+function skipSqlToken(text, index, dbType) {
+  const current = text[index];
+  const next = text[index + 1];
+  if ((current === '-' && next === '-') || (current === '#' && !isPostgresType(dbType))) {
+    const lineEnd = text.indexOf('\n', index);
+    return lineEnd < 0 ? text.length : lineEnd;
+  }
+  if (current === '/' && next === '*') return skipSqlBlockComment(text, index);
+  if (current === '\'' || current === '"' || current === '`') {
+    return skipQuotedSqlToken(text, index);
+  }
+  if (current === '$' && isPostgresType(dbType)) {
+    const tag = sqlDollarQuoteTag(text, index);
+    if (!tag) return index;
+    const close = text.indexOf(tag, index + tag.length);
+    return close < 0 ? text.length : close + tag.length;
+  }
+  return index;
+}
+
+function scanSqlStatementRanges(text, dbType = '') {
   const ranges = [];
   let start = 0;
   let index = 0;
   while (index < text.length) {
-    const nextIndex = skipSqlToken(text, index);
+    const nextIndex = skipSqlToken(text, index, dbType);
     if (nextIndex !== index) {
       index = nextIndex;
       continue;
@@ -301,9 +320,9 @@ function normalizeSqlCursor(text, cursorPosition) {
   return Math.max(0, Math.min(cursorPosition, text.length));
 }
 
-function findSqlStatementRange(text, cursorPosition) {
+function findSqlStatementRange(text, cursorPosition, dbType = '') {
   const cursor = normalizeSqlCursor(text, cursorPosition);
-  return scanSqlStatementRanges(text)
+  return scanSqlStatementRanges(text, dbType)
     .find(candidate => cursor >= candidate.start && cursor <= candidate.end);
 }
 
@@ -311,9 +330,9 @@ function findSqlStatementRange(text, cursorPosition) {
  * 把一段 SQL 拆成可逐条执行的语句数组。
  * 分号仅在字符串、标识符与注释之外作为语句边界；空白语句会被丢弃。
  */
-export function splitSql(source) {
+export function splitSql(source, options = {}) {
   const text = String(source == null ? '' : source);
-  const statements = scanSqlStatementRanges(text)
+  const statements = scanSqlStatementRanges(text, options.dbType)
     .map(range => text.slice(range.start, range.end).trim())
     .filter(Boolean);
   return Object.freeze(statements);

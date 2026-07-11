@@ -8,7 +8,7 @@ npm ci
 npm test
 ```
 
-测试覆盖 SQL 拆分、多语句格式化、自动联想、MySQL/PostgreSQL 方言、schema 上下文、凭据加密、草稿、CSV、关于弹窗元数据和双端共享模块一致性。
+测试覆盖 SQL 拆分、多语句格式化、自动联想、MySQL/PostgreSQL 方言、schema 上下文、凭据加密、多控制台会话迁移与恢复、CSV、关于弹窗元数据和双端共享模块一致性。
 
 ## 静态检查
 

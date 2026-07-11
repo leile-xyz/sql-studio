@@ -69,10 +69,43 @@ async function testAboutDialogMetadata() {
     }
     assert.ok(html.includes('role="dialog"') && html.includes('aria-modal="true"'));
     assert.ok(html.includes(clientLabel), relativePath + ' missing client label');
+    assert.ok(html.includes('<span class="k">作者</span><span class="v">fanzhibiao</span>'), relativePath + ' missing author');
     assert.ok(html.includes('MIT License'), relativePath + ' missing license');
     assert.ok(!html.includes('项目定位'), relativePath + ' includes removed project positioning');
     assert.ok(!html.includes('<span class="k">隐私</span>'), relativePath + ' includes removed privacy entry');
     assert.ok(!html.includes('GitHub 仓库'), relativePath + ' includes removed repository entry');
+  }
+}
+
+async function testAppEntrypointStructure() {
+  for (const relativePath of ['desktop/src/app.js', 'extension/app.js']) {
+    const source = await readUtf8(relativePath);
+    assert.ok(
+      source.includes("renderConsole(tab, $('tabbody'));\n}\nfunction scheduleConsoleSession(tab)"),
+      relativePath + ' missing beautify closing brace',
+    );
+    assert.ok(source.trimEnd().endsWith('init();'), relativePath + ' missing init call');
+  }
+}
+
+async function testConsoleLauncherStructure() {
+  const files = ['desktop/src/index.html', 'extension/app.html'];
+  for (const relativePath of files) {
+    const html = await readUtf8(relativePath);
+    assert.ok(html.includes('id="consoleMenu"'));
+    assert.ok(html.includes('id="consoleAllMenu"'));
+    assert.ok(html.includes('id="renameConsoleMask"'));
+    assert.ok(html.includes('id="renameConsoleInput"'));
+    assert.ok(html.includes('id="renameConsoleSubmit"'));
+    assert.ok(html.includes('id="btnSidebarCollapse"'));
+    assert.ok(html.includes('id="btnSidebarExpand"'));
+  }
+  for (const relativePath of ['desktop/src/app.css', 'extension/app.css']) {
+    const css = await readUtf8(relativePath);
+    assert.ok(css.includes('.console-launcher-wrap'));
+    assert.ok(css.includes('.tabs-scroll'));
+    assert.ok(css.includes('#main.sidebar-collapsed #sidebar'));
+    assert.ok(css.includes('#main.sidebar-collapsed #sidebarRail'));
   }
 }
 
@@ -115,6 +148,8 @@ const files = await walkFiles(REPO_ROOT);
 await testRequiredProjectFiles();
 await testVersionAndLicenseMetadata();
 await testAboutDialogMetadata();
+await testAppEntrypointStructure();
+await testConsoleLauncherStructure();
 await testMarkdownLinks(files);
 await testEncodingAndSourceSize(files);
 console.log('PASS  project: community files, version/license metadata, Markdown links, UTF-8 and source size');

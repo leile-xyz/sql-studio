@@ -32,7 +32,7 @@ desktop/src-tauri/target/release/sql-studio.exe
 
 ## 数据位置
 
-- 配置、历史和草稿：`%APPDATA%\com.fanxiaofan.sql-studio\store.json`；
+- 配置、历史和控制台工作区：`%APPDATA%\com.fanxiaofan.sql-studio\store.json`；
 - 密码：Windows 凭据管理器，服务名 `sql-studio`，账号为环境 `id`；
 - 删除 exe 不会自动删除配置或凭据。
 

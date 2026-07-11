@@ -1,4 +1,5 @@
 import { isPostgresType, qualifiedTableName } from './db-context.mjs';
+import { PAGE_SIZE_OPTIONS } from './console-query.mjs';
 import { renderGrid } from './grid.mjs';
 import { ICO } from './icons.mjs';
 import { highlightSql } from './sql-editor.mjs';
@@ -101,10 +102,10 @@ function renderDataView(tab, subview) {
   if (tab.dataLoading && !tab.data) {
     gridArea = '<div class="center-view"><div class="spinner"></div><div>正在查询…</div></div>';
   }
-  const html = `<div class="toolbar">
+  const html = `<div class="toolbar data-toolbar">
       ${subviewBar(tab, subview)}
       <span class="sep"></span><span class="wlabel">WHERE</span>
-      <input class="winput" data-act="where-input" placeholder="条件片段，如 audit_status = 4 AND auditor_name LIKE '张%'" value="${escapeAttribute(tab.where)}">
+      <input class="winput" data-act="where-input" placeholder="条件片段，如 audit_status = 4 AND auditor_name LIKE '张%'" value="${escapeAttribute(tab.whereDraft ?? tab.where)}">
       <button class="tbtn" data-act="apply-where">应用</button>
       ${tab.where ? '<button class="tbtn" data-act="clear-where">清除</button>' : ''}
       ${orderBy.map(order => `<span class="chip">${escapeHtml(order.col)} ${order.dir.toUpperCase()}<span class="x" data-act="clear-sort" data-col="${escapeAttribute(order.col)}">✕</span></span>`).join('')}
@@ -116,7 +117,7 @@ function renderDataView(tab, subview) {
     <div class="pagerbar">
       <span>${pagination.summary}${tab.data && tab.data.isMasked ? ' · 已脱敏' : ''}</span>
       <span style="width:1px;height:16px;background:var(--border)"></span>
-      每页 <select data-act="pagesize">${[20, 50, 100, 200, 500].map(size => `<option ${size === tab.pageSize ? 'selected' : ''}>${size}</option>`).join('')}</select> 条
+      每页 <select data-act="pagesize">${PAGE_SIZE_OPTIONS.map(size => `<option ${size === tab.pageSize ? 'selected' : ''}>${size}</option>`).join('')}</select> 条
       <span style="width:1px;height:16px;background:var(--border)"></span>
       <button class="pg-btn" data-act="page" data-page="1" ${pagination.loading || tab.page <= 1 ? 'disabled' : ''}>⏮</button>
       <button class="pg-btn" data-act="page" data-page="${tab.page - 1}" ${pagination.loading || tab.page <= 1 ? 'disabled' : ''}>◀</button>

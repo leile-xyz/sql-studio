@@ -1,5 +1,4 @@
 import { buildTableConsoleSql, isPostgresType } from './db-context.mjs';
-import { tableDataColumns } from './table-view.mjs';
 
 const MIN_EDITOR_HEIGHT = 60;
 const EDITOR_VIEWPORT_MARGIN = 160;
@@ -22,7 +21,23 @@ function createClickHandlers(options) {
     'open-table': ({ element }) => options.openTableNode(element.dataset.uid),
     tab: ({ element }) => options.activateTab(+element.dataset.id),
     'close-tab': ({ element, event }) => { event.stopPropagation(); options.closeTab(+element.dataset.id); },
-    'new-console': () => options.newConsole(),
+    'new-console': () => { options.hideMenus(); options.newConsole(); },
+    'toggle-console-menu': ({ element, event }) => {
+      event.stopPropagation();
+      options.toggleConsoleMenu(element);
+    },
+    'open-default-console': () => { options.hideMenus(); options.openDefaultConsole(); },
+    'open-console': ({ element }) => { options.hideMenus(); options.activateTab(+element.dataset.id); },
+    'rename-console': ({ element, event }) => {
+      event.stopPropagation(); options.openRenameConsole(+element.dataset.id);
+    },
+    'delete-console': ({ element, event }) => {
+      event.stopPropagation(); options.hideMenus(); options.deleteConsole(+element.dataset.id);
+    },
+    'show-all-consoles': ({ element, event }) => {
+      event.stopPropagation();
+      options.toggleAllConsolesMenu(element);
+    },
     subview: ({ element }) => {
       const tab = currentTab();
       const subview = element.dataset.v;
@@ -35,6 +50,7 @@ function createClickHandlers(options) {
     'clear-where': () => {
       const tab = currentTab();
       tab.where = '';
+      tab.whereDraft = '';
       tab.page = 1;
       options.reloadData(tab);
     },
@@ -73,9 +89,20 @@ function createClickHandlers(options) {
       tab.activeResult = +element.dataset.i;
       options.renderConsoleResult(tab);
     },
+    'con-page': ({ element }) => {
+      const tab = currentTab();
+      const result = tab && tab.results && tab.results[tab.activeResult];
+      if (!result || !result.pageable || result.dataLoading) return;
+      options.reloadConsolePage({
+        tabId: tab.id,
+        resultIndex: tab.activeResult,
+        page: Number(element.dataset.page),
+        pageSize: result.pageSize,
+      });
+    },
     beautify: () => options.beautify(currentTab()),
-    'export-csv': () => exportTableCsv(currentTab(), options),
-    'export-csv-con': () => exportConsoleCsv(currentTab(), options),
+    'export-csv': () => options.exportTableCsv(currentTab()),
+    'export-csv-con': () => options.exportConsoleCsv(currentTab()),
     cell: ({ element }) => options.selectCell(element),
   });
 }
@@ -86,23 +113,6 @@ function copyDdl(tab, options) {
     return;
   }
   navigator.clipboard.writeText(tab.meta.ddl).then(() => options.toast('DDL 已复制', 'ok'));
-}
-
-function exportTableCsv(tab, options) {
-  if (!tab || !tab.data) {
-    options.toast('无数据可导出', 'err');
-    return;
-  }
-  options.exportCsv(tableDataColumns(tab), tab.data.rows, tab.table);
-}
-
-function exportConsoleCsv(tab, options) {
-  const result = tab && tab.results && tab.results[tab.activeResult];
-  if (!result || !result.ok || !result.rows.length) {
-    options.toast('当前结果无可导出数据', 'err');
-    return;
-  }
-  options.exportCsv(result.columns.map(name => ({ name })), result.rows, tab.title);
 }
 
 function bindClickEvents(options) {
@@ -126,7 +136,7 @@ function bindInputEvents(options) {
     }
     if (element.dataset.act !== 'where-input') return;
     const tab = options.getCurrentTab();
-    if (tab) tab.where = element.value;
+    if (tab) tab.whereDraft = element.value;
     options.autocomplete.update(element);
   });
   document.addEventListener('change', event => handleChange(event, options));
@@ -142,6 +152,17 @@ function handleChange(event, options) {
     options.reloadData(tab);
     return;
   }
+  if (element.dataset.act === 'con-pagesize') {
+    const result = tab && tab.results && tab.results[tab.activeResult];
+    if (!result || !result.pageable || result.dataLoading) return;
+    options.reloadConsolePage({
+      tabId: tab.id,
+      resultIndex: tab.activeResult,
+      page: 1,
+      pageSize: Number(element.value),
+    });
+    return;
+  }
   if (element.dataset.act === 'con-instance') options.changeConsoleInstance(tab, element.value);
   if (element.dataset.act === 'con-db') options.changeConsoleDatabase(tab, element.value);
   if (element.dataset.act === 'con-schema') options.changeConsoleSchema(tab, element.value);
@@ -149,6 +170,7 @@ function handleChange(event, options) {
 
 function bindKeyboardEvents(options) {
   document.addEventListener('keydown', event => {
+    if (event.key === 'Escape') options.hideMenus();
     if (options.autocomplete.isOpenFor(event.target)) {
       options.autocomplete.onKeydown(event);
       if (event.defaultPrevented) return;
@@ -213,7 +235,10 @@ function bindDragEvents(options) {
       ? createEditorResize(event, tab)
       : createColumnResize(event, resizer, tab);
     if (!onMove) return;
-    const onUp = () => finishDrag(onMove, onUp);
+    const onUp = () => {
+      finishDrag(onMove, onUp);
+      if (editorResizer) options.persistConsoleSession();
+    };
     document.body.style.cursor = editorResizer ? 'row-resize' : 'col-resize';
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);

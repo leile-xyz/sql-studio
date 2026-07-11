@@ -1,9 +1,15 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { setTimeout as delay } from 'node:timers/promises';
 import { buildCsv } from '../src/lib/csv.mjs';
-import { ConsoleDraftManager } from '../src/lib/console-draft.mjs';
+import {
+  buildConsoleCountSql,
+  buildConsolePageSql,
+  DEFAULT_CONSOLE_PAGE_SIZE,
+  isPageableConsoleSql,
+  PAGE_SIZE_OPTIONS,
+} from '../src/lib/console-query.mjs';
 import { parseTableDescription } from '../src/lib/ddl.js';
+import { collectPagedRows } from '../src/lib/paged-export.mjs';
 import { renderTableView, resolveTableSubview } from '../src/lib/table-view.mjs';
 import { decryptText, encryptText } from '../../extension/lib/crypto.js';
 import {
@@ -280,30 +286,6 @@ function testCsv() {
   assert.equal(buildCsv([{ name: 'name' }], [['a,b']]), '\uFEFFname\r\n"a,b"');
 }
 
-async function testDraftManager() {
-  const saved = [];
-  const store = {
-    getConsoleDraft: async envId => ({ sql: 'SELECT 1;', instance: envId, db: 'demo_db', updatedAt: 1 }),
-    saveConsoleDraft: async (envId, draft) => { saved.push({ envId, draft }); },
-  };
-  const manager = new ConsoleDraftManager({ store, onError: error => { throw error; }, saveDelayMs: 5 });
-  assert.equal((await manager.load('mock')).instance, 'mock');
-  manager.schedule('mock', { sql: 'SELECT 1;', instance: 'mock-inst', db: 'demo_db' });
-  const latest = manager.schedule('mock', {
-    sql: FULL_SQL,
-    instance: 'mock-pg',
-    db: 'dify',
-    schema: 'public',
-    dbType: 'pgsql',
-  });
-  assert.ok(Object.isFrozen(latest));
-  await delay(20);
-  assert.equal(saved.length, 1);
-  assert.equal(saved[0].draft.sql, FULL_SQL);
-  assert.equal(saved[0].draft.schema, 'public');
-  assert.equal(saved[0].draft.dbType, 'pgsql');
-}
-
 async function testExtensionCredentialEncryption() {
   const plaintext = 'sql-studio-test-password';
   const ciphertext = await encryptText(plaintext);
@@ -317,7 +299,16 @@ async function testDesktopExtensionParity() {
     'sql-editor.mjs',
     'about-dialog.mjs',
     'db-context.mjs',
-    'console-draft.mjs',
+    'console-session.mjs',
+    'console-rename.mjs',
+    'console-workspace.mjs',
+    'console-menu-view.mjs',
+    'csv-export-actions.mjs',
+    'console-execution.mjs',
+    'console-query.mjs',
+    'console-result-view.mjs',
+    'export-service.mjs',
+    'paged-export.mjs',
     'app-events.mjs',
     'resource-tree-view.mjs',
     'table-view.mjs',
@@ -336,6 +327,14 @@ async function testDesktopExtensionParity() {
 function testSplitSql() {
   // 基本多语句拆分
   assert.deepEqual(splitSql('SELECT 1;SELECT 2;'), ['SELECT 1', 'SELECT 2']);
+  assert.deepEqual(splitSql('SELECT $$a;b$$ AS payload; SELECT 2;', { dbType: 'pgsql' }), [
+    'SELECT $$a;b$$ AS payload',
+    'SELECT 2',
+  ]);
+  assert.deepEqual(splitSql("SELECT payload #>> '{name}' FROM events; SELECT 2;", { dbType: 'pgsql' }), [
+    "SELECT payload #>> '{name}' FROM events",
+    'SELECT 2',
+  ]);
   // 尾部无分号也算一条
   assert.deepEqual(splitSql('SELECT 1;\nSELECT 2'), ['SELECT 1', 'SELECT 2']);
   // 空白语句被丢弃
@@ -821,6 +820,114 @@ function testContextAwareAutocompletePriority() {
   assertOrder(collectAt(whereSql, 'fi', whereSql.length), 'field');
 }
 
+function testConsoleQueryPagination() {
+  assert.equal(DEFAULT_CONSOLE_PAGE_SIZE, 1000);
+  assert.deepEqual(PAGE_SIZE_OPTIONS, [20, 50, 100, 200, 500, 1000]);
+  assert.ok(Object.isFrozen(PAGE_SIZE_OPTIONS));
+  for (const sql of [
+    'SELECT * FROM t_user',
+    '-- leading comment\nSELECT * FROM t_user',
+    '/* outer /* nested */ comment */ SELECT * FROM t_user',
+    'WITH recent AS (SELECT * FROM events LIMIT 10) SELECT * FROM recent',
+    'WITH RECURSIVE tree AS (SELECT 1 UNION ALL SELECT id + 1 FROM tree) SELECT * FROM tree',
+    "SELECT 'LIMIT 1', \"OFFSET\", `FETCH` FROM t_user",
+    'SELECT $$ LIMIT 1 $$ AS text_value FROM t_user',
+    'SELECT * FROM (SELECT * FROM t_user LIMIT 1) nested_rows',
+  ]) assert.equal(isPageableConsoleSql(sql), true, sql);
+  for (const sql of [
+    '',
+    'UPDATE t_user SET name = \'changed\'',
+    'WITH changed AS (SELECT id FROM t_user) UPDATE t_user SET name = \'changed\'',
+    'WITH removed AS (SELECT id FROM t_user) DELETE FROM t_user',
+    'SELECT * FROM t_user LIMIT 10',
+    'SELECT * FROM t_user OFFSET 10',
+    'SELECT * FROM t_user FETCH FIRST 10 ROWS ONLY',
+    'WITH claimed AS (UPDATE jobs SET status = 1 RETURNING *) SELECT * FROM claimed',
+    'SELECT * FROM jobs FOR UPDATE SKIP LOCKED',
+    'SELECT id INTO archived_ids FROM users',
+  ]) assert.equal(isPageableConsoleSql(sql), false, sql);
+  assert.equal(isPageableConsoleSql("SELECT payload #>> '{name}' FROM events", 'pgsql'), true);
+  assert.equal(isPageableConsoleSql("SELECT payload #>> '{name}' FROM events LIMIT 10", 'pgsql'), false);
+  assert.equal(
+    buildConsolePageSql({ sql: 'SELECT * FROM t_user;', page: 3, pageSize: 1000 }),
+    'SELECT * FROM t_user\nLIMIT 1000 OFFSET 2000',
+  );
+  assert.equal(
+    buildConsoleCountSql({ sql: 'SELECT DISTINCT status FROM t_user;' }),
+    'SELECT COUNT(*) AS total\nFROM (\nSELECT DISTINCT status FROM t_user\n) AS sql_studio_count',
+  );
+  assert.throws(
+    () => buildConsolePageSql({ sql: 'SELECT * FROM t_user LIMIT 10', page: 1, pageSize: 1000 }),
+    /无顶层分页参数/,
+  );
+  assert.throws(
+    () => buildConsolePageSql({ sql: 'SELECT 1', page: 0, pageSize: 1000 }),
+    /page 必须是正安全整数/,
+  );
+  assert.throws(() => buildConsoleCountSql({ sql: 'UPDATE t_user SET name = 1' }), /安全且无顶层分页参数/);
+}
+
+async function testPagedRowCollection() {
+  const sourceRows = Object.freeze([
+    Object.freeze([1, 'a']),
+    Object.freeze([2, 'b']),
+    Object.freeze([3, 'c']),
+    Object.freeze([4, 'd']),
+    Object.freeze([5, 'e']),
+  ]);
+  const requests = [];
+  const result = await collectPagedRows({
+    totalRows: sourceRows.length,
+    pageSize: 2,
+    fetchPage: async request => {
+      requests.push(request);
+      return { columns: ['id', 'name'], rows: sourceRows.slice(request.offset, request.offset + request.expectedRows) };
+    },
+  });
+  assert.deepEqual(requests, [
+    { page: 1, pageSize: 2, offset: 0, expectedRows: 2 },
+    { page: 2, pageSize: 2, offset: 2, expectedRows: 2 },
+    { page: 3, pageSize: 2, offset: 4, expectedRows: 1 },
+  ]);
+  assert.ok(requests.every(Object.isFrozen));
+  assert.deepEqual(result.columns, ['id', 'name']);
+  assert.deepEqual(result.rows, sourceRows);
+  assert.ok(Object.isFrozen(result) && Object.isFrozen(result.columns) && Object.isFrozen(result.rows));
+  assert.ok(result.rows.every(Object.isFrozen));
+  let emptyFetches = 0;
+  const empty = await collectPagedRows({
+    totalRows: 0,
+    pageSize: 1000,
+    columns: ['id'],
+    fetchPage: async () => { emptyFetches += 1; },
+  });
+  assert.equal(emptyFetches, 0);
+  assert.deepEqual(empty, { columns: ['id'], rows: [] });
+  await assert.rejects(() => collectPagedRows({
+    totalRows: 3,
+    pageSize: 2,
+    fetchPage: async ({ page }) => ({
+      columns: page === 1 ? ['id'] : ['changed_id'],
+      rows: page === 1 ? [[1], [2]] : [[3]],
+    }),
+  }), /第 2 页列定义不一致/);
+  await assert.rejects(() => collectPagedRows({
+    totalRows: 3,
+    pageSize: 2,
+    fetchPage: async () => ({ columns: ['id'], rows: [[1]] }),
+  }), /第 1 页行数不符/);
+  await assert.rejects(() => collectPagedRows({
+    totalRows: 1,
+    pageSize: 1,
+    fetchPage: async () => ({ columns: ['id', 'name'], rows: [[1]] }),
+  }), /行列数不一致/);
+  await assert.rejects(() => collectPagedRows({
+    totalRows: 1,
+    pageSize: 1,
+    fetchPage: async () => { throw new Error('page request failed'); },
+  }), /page request failed/);
+}
+
 testExecutionResolution();
 testEditorUtilities();
 testDbContextHelpers();
@@ -842,9 +949,12 @@ testStatementScopedAutocomplete();
 testSchemaScopedAutocomplete();
 testCompletionContextDetection();
 testContextAwareAutocompletePriority();
+testConsoleQueryPagination();
 testCsv();
-await testDraftManager();
+await testPagedRowCollection();
 await testExtensionCredentialEncryption();
 await testDesktopApiSchemaRequests();
 await testDesktopExtensionParity();
-console.log('PASS  unit: SQL splitting, multi-statement formatting, context-aware autocomplete, table extraction, match highlighting, all-columns item, selection, draft persistence, CSV and dual-end parity');
+await import('./console-session.mjs');
+await import('./pagination.mjs');
+console.log('PASS  unit: SQL splitting, multi-statement formatting, autocomplete, table extraction, session persistence, CSV and dual-end parity');
