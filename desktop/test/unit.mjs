@@ -94,10 +94,14 @@ function testDbContextHelpers() {
     pageSize: 100,
   };
   assert.equal(buildBrowseSql(postgresBrowse), 'SELECT * FROM "public"."end_users" OFFSET 0');
-  assert.equal(buildTableConsoleSql(postgresBrowse), 'SELECT * FROM "public"."end_users" LIMIT 100');
+  assert.equal(buildTableConsoleSql(postgresBrowse), 'SELECT * FROM "public"."end_users"');
   assert.equal(
     buildBrowseSql({ ...postgresBrowse, dbType: 'mysql', schema: '', table: 't_user' }),
     'SELECT * FROM `t_user` LIMIT 100 OFFSET 0',
+  );
+  assert.equal(
+    buildTableConsoleSql({ ...postgresBrowse, dbType: 'mysql', schema: '', table: 't_user' }),
+    'SELECT * FROM `t_user`',
   );
 }
 

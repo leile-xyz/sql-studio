@@ -58,7 +58,7 @@ export function buildTableConsoleSql(options) {
   const paginationPattern = isPostgresType(options.dbType)
     ? / OFFSET \d+$/
     : / LIMIT \d+ OFFSET \d+$/;
-  return buildBrowseSql(options).replace(paginationPattern, '') + ' LIMIT 100';
+  return buildBrowseSql(options).replace(paginationPattern, '');
 }
 
 export function resourceContextKey(options) {

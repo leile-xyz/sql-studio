@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { executeConsoleStatement, fetchConsolePage } from '../src/lib/console-execution.mjs';
 import { renderConsoleResultView } from '../src/lib/console-result-view.mjs';
+import { buildTableConsoleSql } from '../src/lib/db-context.mjs';
 import { collectConsoleExport, collectTableExport } from '../src/lib/export-service.mjs';
 
 const columns = Object.freeze(['id']);
@@ -57,6 +58,22 @@ async function testConsoleExecutionAndPaging() {
   assert.equal(reduced.page, 2);
   assert.equal(reduced.rows.length, 500);
   assert.equal(reduced.totalRows, 1500);
+}
+
+async function testTableConsoleSqlKeepsAutomaticPagination() {
+  const context = { instance: 'inst', db: 'db', schema: '', dbType: 'mysql' };
+  const sql = buildTableConsoleSql({
+    dbType: 'mysql', table: 'users', schema: '', where: 'status = 1',
+    orderBy: [{ col: 'id', dir: 'desc' }], page: 3, pageSize: 100,
+  });
+  const calls = [];
+  const result = await executeConsoleStatement({
+    api: pagedApi(2501, calls), origin: 'http://archery', context, sql,
+  });
+  assert.equal(result.pageable, true);
+  assert.equal(result.totalRows, 2501);
+  assert.equal(result.pageCount, 3);
+  assert.equal(calls.length, 2);
 }
 
 async function testConsoleCountFailureAndExplicitLimit() {
@@ -134,6 +151,7 @@ function testConsoleResultView() {
 }
 
 await testConsoleExecutionAndPaging();
+await testTableConsoleSqlKeepsAutomaticPagination();
 await testConsoleCountFailureAndExplicitLimit();
 await testFullExports();
 testConsoleResultView();
