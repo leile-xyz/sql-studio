@@ -84,29 +84,50 @@ export function visibleTabs(tabs) {
   return tabs.filter(tab => tab.type !== 'console' || tab.open !== false);
 }
 
-export function closeWorkspaceTab(options) {
-  const index = options.tabs.findIndex(tab => tab.id === options.id);
-  if (index < 0) return null;
-  const closed = options.tabs[index];
-  // 控制台可能仍有执行、分页或上下文请求在途，必须保留对象身份让结果回写到可重开的同一记录。
-  if (closed.type === 'console') closed.open = false;
-  const tabs = closed.type === 'console' ? options.tabs.slice() : options.tabs.filter(tab => tab.id !== closed.id);
-  if (options.activeTabId !== closed.id) {
-    const activeKey = closed.consoleKey === options.activeConsoleKey
-      ? visibleTabs(tabs).find(tab => tab.type === 'console')?.consoleKey || null
-      : options.activeConsoleKey;
-    return Object.freeze({ tabs, closed, activeTabId: options.activeTabId, activeConsoleKey: activeKey });
+function tabIdsForCloseMode(options) {
+  const tabs = visibleTabs(options.tabs);
+  const index = tabs.findIndex(tab => tab.id === options.id);
+  if (index < 0) return [];
+  if (options.mode === 'others') return tabs.filter(tab => tab.id !== options.id).map(tab => tab.id);
+  if (options.mode === 'right') return tabs.slice(index + 1).map(tab => tab.id);
+  if (options.mode === 'all') return tabs.map(tab => tab.id);
+  if (options.mode === 'self') return [options.id];
+  throw new Error(`未知标签页关闭模式：${options.mode}`);
+}
+
+function fallbackTab(options) {
+  if (!options.closedIds.has(options.activeTabId)) {
+    return options.visible.find(tab => tab.id === options.activeTabId) || null;
   }
+  const activeIndex = options.visible.findIndex(tab => tab.id === options.activeTabId);
+  const previous = options.visible.slice(0, activeIndex).findLast(tab => !options.closedIds.has(tab.id));
+  return previous || options.visible.slice(activeIndex + 1).find(tab => !options.closedIds.has(tab.id)) || null;
+}
+
+export function closeWorkspaceTabs(options) {
+  const ids = tabIdsForCloseMode(options);
+  if (!ids.length) return null;
+  const closedIds = new Set(ids);
+  const visible = visibleTabs(options.tabs);
+  const closed = visible.filter(tab => closedIds.has(tab.id));
+  // 控制台可能仍有执行、分页或上下文请求在途，必须保留对象身份让结果回写到可重开的同一记录。
+  closed.filter(tab => tab.type === 'console').forEach(tab => { tab.open = false; });
+  const tabs = options.tabs.filter(tab => tab.type === 'console' || !closedIds.has(tab.id));
   const openTabs = visibleTabs(tabs);
-  const previous = visibleTabs(tabs.slice(0, index)).at(-1);
-  const fallback = previous || visibleTabs(tabs.slice(index + 1))[0] || null;
-  const consoleFallback = fallback?.type === 'console' ? fallback : openTabs.find(tab => tab.type === 'console');
+  const fallback = fallbackTab({ visible, closedIds, activeTabId: options.activeTabId });
+  const currentConsole = openTabs.find(tab => tab.consoleKey === options.activeConsoleKey);
+  const consoleFallback = currentConsole || (fallback?.type === 'console' ? fallback : openTabs.find(tab => tab.type === 'console'));
   return Object.freeze({
     tabs,
-    closed,
+    closed: Object.freeze(closed),
     activeTabId: fallback ? fallback.id : null,
     activeConsoleKey: consoleFallback ? consoleFallback.consoleKey : null,
   });
+}
+
+export function closeWorkspaceTab(options) {
+  const result = closeWorkspaceTabs({ ...options, mode: 'self' });
+  return result ? Object.freeze({ ...result, closed: result.closed[0] }) : null;
 }
 
 export function deleteWorkspaceConsole(options) {

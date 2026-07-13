@@ -21,6 +21,7 @@ function createClickHandlers(options) {
     'open-table': ({ element }) => options.openTableNode(element.dataset.uid),
     tab: ({ element }) => options.activateTab(+element.dataset.id),
     'close-tab': ({ element, event }) => { event.stopPropagation(); options.closeTab(+element.dataset.id); },
+    'close-tabs': ({ element }) => options.closeTabs({ id: +element.dataset.id, mode: element.dataset.mode }),
     'new-console': () => { options.hideMenus(); options.newConsole(); },
     'toggle-console-menu': ({ element, event }) => {
       event.stopPropagation();
@@ -104,6 +105,15 @@ function createClickHandlers(options) {
     'export-csv': () => options.exportTableCsv(currentTab()),
     'export-csv-con': () => options.exportConsoleCsv(currentTab()),
     cell: ({ element }) => options.selectCell(element),
+  });
+}
+
+function bindContextMenuEvents(options) {
+  document.addEventListener('contextmenu', event => {
+    event.preventDefault();
+    const tab = event.target.closest('#tabbar .tab');
+    if (!tab) { options.hideMenus(); return; }
+    options.openTabContextMenu({ tabId: +tab.dataset.id, clientX: event.clientX, clientY: event.clientY });
   });
 }
 
@@ -288,6 +298,7 @@ async function loadHoverMetadata(node, element, options) {
 
 export function bindAppEvents(options) {
   bindClickEvents(options);
+  bindContextMenuEvents(options);
   bindInputEvents(options);
   bindKeyboardEvents(options);
   bindDragEvents(options);

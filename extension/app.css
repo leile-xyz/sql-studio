@@ -54,6 +54,8 @@ button { font-family: inherit; }
 .menu.show { display: block; }
 .menu .mi { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 5px; cursor: pointer; white-space: nowrap; }
 .menu .mi:hover { background: var(--sel); }
+.menu .mi.disabled { color: var(--text-faint); cursor: default; }
+.menu .mi.disabled:hover { background: transparent; }
 .menu .mi .grow { flex: 1; }
 .menu .mi .murl { color: var(--text-faint); font-size: 11px; font-family: var(--mono); }
 .menu .mi .check { color: var(--accent); visibility: hidden; }
@@ -61,6 +63,7 @@ button { font-family: inherit; }
 .menu hr { border: none; border-top: 1px solid var(--border); margin: 5px 4px; }
 .menu-title { padding: 7px 10px 5px; color: var(--text); font-weight: 600; }
 .menu-empty { padding: 8px 10px; color: var(--text-faint); }
+.tab-context-menu { min-width: 150px; }
 .console-menu { min-width: 220px; }
 .console-all-menu { min-width: 190px; max-height: min(70vh, 520px); overflow-y: auto; }
 .console-menu-icon { color: var(--blue); font-family: var(--mono); font-weight: 700; }

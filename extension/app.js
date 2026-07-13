@@ -18,9 +18,9 @@ import {
   isPostgresType,
   parseCountTotal,
 } from './lib/db-context.mjs';
-import { renderTabBarView, showAllConsolesMenu, showConsoleMenu } from './lib/console-menu-view.mjs';
+import { renderTabBarView, showAllConsolesMenu, showConsoleMenu, showTabContextMenu } from './lib/console-menu-view.mjs';
 import { ConsoleRenameController } from './lib/console-rename.mjs';
-import { closeWorkspaceTab, consoleSessionState, createNewConsole, defaultConsoleTab, deleteWorkspaceConsole, restoreConsoleWorkspace } from './lib/console-workspace.mjs';
+import { closeWorkspaceTabs, consoleSessionState, createNewConsole, defaultConsoleTab, deleteWorkspaceConsole, restoreConsoleWorkspace } from './lib/console-workspace.mjs';
 const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const attr = s => String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 /* ================= 状态 ================= */
@@ -580,11 +580,10 @@ function openDefaultConsole() {
   if (consoleTab) activateTab(consoleTab.id);
   else newConsole();
 }
-function closeTab(id) {
-  const closed = closeWorkspaceTab({ tabs: state.tabs, id, activeTabId: state.activeTabId, activeConsoleKey: state.activeConsoleKey });
+function closeTabs(options) {
+  hideMenus(); const closed = closeWorkspaceTabs({ tabs: state.tabs, activeTabId: state.activeTabId, activeConsoleKey: state.activeConsoleKey, ...options });
   if (!closed) return;
-  state.tabs = closed.tabs; state.activeTabId = closed.activeTabId; state.activeConsoleKey = closed.activeConsoleKey;
-  if (closed.closed.type === 'console') persistConsoleSession();
+  state.tabs = closed.tabs; state.activeTabId = closed.activeTabId; state.activeConsoleKey = closed.activeConsoleKey; if (closed.closed.some(tab => tab.type === 'console')) persistConsoleSession();
   renderTabs(); renderBody();
 }
 function deleteConsole(id) {
@@ -930,7 +929,9 @@ function bindDelegation() {
     toggleNode,
     toggleFolder,
     activateTab,
-    closeTab,
+    closeTab: id => closeTabs({ id, mode: 'self' }),
+    closeTabs,
+    openTabContextMenu: options => showTabContextMenu({ tabs: state.tabs, hideMenus, ...options }),
     newConsole,
     openDefaultConsole,
     openRenameConsole: id => consoleRename.open(id),

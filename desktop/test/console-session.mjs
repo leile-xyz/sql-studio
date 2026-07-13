@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import { setTimeout as delay } from 'node:timers/promises';
-import { renderAllConsolesMenuView, renderConsoleMenuView, renderTabBarView } from '../src/lib/console-menu-view.mjs';
+import { renderAllConsolesMenuView, renderConsoleMenuView, renderTabBarView, renderTabContextMenuView } from '../src/lib/console-menu-view.mjs';
 import { renameConsoleTitle } from '../src/lib/console-rename.mjs';
 import { ConsoleSessionManager } from '../src/lib/console-session.mjs';
-import { closeWorkspaceTab, consoleIdentity, consoleSessionState, createNewConsole, defaultConsoleTab, deleteWorkspaceConsole, restoreConsoleWorkspace, visibleTabs } from '../src/lib/console-workspace.mjs';
+import { closeWorkspaceTab, closeWorkspaceTabs, consoleIdentity, consoleSessionState, createNewConsole, defaultConsoleTab, deleteWorkspaceConsole, restoreConsoleWorkspace, visibleTabs } from '../src/lib/console-workspace.mjs';
 
 const consoleState = (key, sql, open = true) => ({
   consoleKey: key,
@@ -105,6 +105,32 @@ function testConsoleWorkspace() {
   assert.equal(visibleTabs(closed.tabs).length, 1);
   assert.equal(closed.activeTabId, 2);
   assert.equal(consoleSessionState({ tabs: closed.tabs, activeConsoleKey: 'console-1', nextSequence: 2 }).consoles.length, 2);
+  const batchConsoleA = { ...first.tab, open: true };
+  const batchConsoleB = { ...second, open: true };
+  const tableA = { id: 3, type: 'table', table: 'a' };
+  const tableB = { id: 4, type: 'table', table: 'b' };
+  const closeRight = closeWorkspaceTabs({
+    tabs: [batchConsoleA, batchConsoleB, tableA, tableB], id: 2, mode: 'right', activeTabId: 4, activeConsoleKey: 'console-1',
+  });
+  assert.deepEqual(closeRight.closed, [tableA, tableB]);
+  assert.deepEqual(closeRight.tabs, [batchConsoleA, batchConsoleB]);
+  assert.equal(closeRight.activeTabId, 2);
+  assert.equal(closeRight.activeConsoleKey, 'console-1');
+  const closeOthers = closeWorkspaceTabs({
+    tabs: [{ ...batchConsoleA }, { ...batchConsoleB }, tableA, tableB], id: 3, mode: 'others', activeTabId: 2, activeConsoleKey: 'console-1',
+  });
+  assert.deepEqual(visibleTabs(closeOthers.tabs), [tableA]);
+  assert.equal(closeOthers.activeTabId, 3);
+  assert.equal(closeOthers.activeConsoleKey, null);
+  const closeAll = closeWorkspaceTabs({
+    tabs: [{ ...batchConsoleA }, { ...batchConsoleB }, tableA], id: 3, mode: 'all', activeTabId: 3, activeConsoleKey: 'console-1',
+  });
+  assert.equal(visibleTabs(closeAll.tabs).length, 0);
+  assert.equal(closeAll.activeTabId, null);
+  assert.equal(closeAll.activeConsoleKey, null);
+  assert.throws(() => closeWorkspaceTabs({
+    tabs: [tableA], id: 3, mode: 'invalid', activeTabId: 3, activeConsoleKey: null,
+  }), /未知标签页关闭模式/);
   const adjacent = closeWorkspaceTab({
     tabs: [
       { ...first.tab, id: 10, consoleKey: 'console-0', open: false },
@@ -171,6 +197,11 @@ function testConsoleMenuViews() {
   assert.equal((menu.match(/data-act="delete-console"/g) || []).length, 1);
   assert.equal((all.match(/data-act="rename-console"/g) || []).length, 2);
   assert.equal((menu.match(/data-act="rename-console"/g) || []).length, 1);
+  const tabMenu = renderTabContextMenuView({ tabId: 2, hasOthers: true, hasRight: false });
+  assert.ok(tabMenu.includes('关闭其他'));
+  assert.ok(tabMenu.includes('全部关闭'));
+  assert.ok(tabMenu.includes('data-mode="others"'));
+  assert.ok(!tabMenu.includes('data-mode="right"'));
 }
 
 await testLegacyDraftMigration();

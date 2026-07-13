@@ -1,5 +1,6 @@
 const esc = value => String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const attr = value => esc(value).replace(/"/g, '&quot;');
+const MENU_VIEWPORT_MARGIN = 8;
 
 function tabHtml(tab, options) {
   const icon = tab.type === 'console'
@@ -56,6 +57,39 @@ export function renderAllConsolesMenuView(options) {
   if (!options.consoles.length) return '<div class="menu-empty">尚未打开控制台</div>';
   const activeTabId = activeConsoleId(options);
   return options.consoles.map(tab => consoleItem(tab, activeTabId)).join('');
+}
+
+function tabMenuItem(options) {
+  const action = options.disabled ? '' : ` data-act="close-tabs" data-id="${options.tabId}" data-mode="${options.mode}"`;
+  return `<div class="mi${options.disabled ? ' disabled' : ''}"${action}>${options.label}</div>`;
+}
+
+export function renderTabContextMenuView(options) {
+  return [
+    tabMenuItem({ tabId: options.tabId, mode: 'self', label: '关闭' }),
+    tabMenuItem({ tabId: options.tabId, mode: 'others', label: '关闭其他', disabled: !options.hasOthers }),
+    tabMenuItem({ tabId: options.tabId, mode: 'right', label: '关闭右侧', disabled: !options.hasRight }),
+    tabMenuItem({ tabId: options.tabId, mode: 'all', label: '全部关闭' }),
+  ].join('');
+}
+
+export function showTabContextMenu(options) {
+  const tabs = options.tabs.filter(tab => tab.type !== 'console' || tab.open !== false);
+  const index = tabs.findIndex(tab => tab.id === options.tabId);
+  if (index < 0) return;
+  options.hideMenus();
+  const menu = document.getElementById('tabContextMenu');
+  menu.innerHTML = renderTabContextMenuView({
+    tabId: options.tabId,
+    hasOthers: tabs.length > 1,
+    hasRight: index < tabs.length - 1,
+  });
+  menu.style.left = options.clientX + 'px';
+  menu.style.top = options.clientY + 'px';
+  menu.classList.add('show');
+  const rect = menu.getBoundingClientRect();
+  menu.style.left = Math.max(MENU_VIEWPORT_MARGIN, Math.min(options.clientX, window.innerWidth - rect.width - MENU_VIEWPORT_MARGIN)) + 'px';
+  menu.style.top = Math.max(MENU_VIEWPORT_MARGIN, Math.min(options.clientY, window.innerHeight - rect.height - MENU_VIEWPORT_MARGIN)) + 'px';
 }
 
 export function showConsoleMenu(options) {
