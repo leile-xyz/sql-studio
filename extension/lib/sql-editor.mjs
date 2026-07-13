@@ -351,7 +351,7 @@ const SQL_CONTEXT_IDENTIFIER = '<identifier>';
 const SQL_WORD_START_PATTERN = /[A-Za-z_]/;
 const SQL_WORD_PART_PATTERN = /[\w$]/;
 const SQL_CONTEXT_CLAUSES = Object.freeze({
-  select: Object.freeze({ mode: 'field', expectsTable: false, tableList: false }),
+  select: Object.freeze({ mode: 'select-list', expectsTable: false, tableList: false }),
   from: Object.freeze({ mode: 'table', expectsTable: true, tableList: true }),
   join: Object.freeze({ mode: 'table', expectsTable: true, tableList: false }),
   update: Object.freeze({ mode: 'table', expectsTable: true, tableList: false }),
@@ -620,7 +620,9 @@ export class SqlAutocomplete {
     if (!context.instance || !context.db) return [];
     const excludedTable = completionContext === 'table' ? lowerPrefix : '';
     const columns = this.collectColumnItems({ context, sql, lowerPrefix, refresh, excludedTable });
-    const allColumnsItem = completionContext === 'table' ? null : this.collectAllColumnsItem(context, sql);
+    const allColumnsItem = completionContext === 'select-list'
+      ? this.collectAllColumnsItem(context, sql)
+      : null;
     const exactColumns = columns.filter(column => column.label.toLowerCase() === lowerPrefix);
     const partialColumns = columns.filter(column => column.label.toLowerCase() !== lowerPrefix);
     // 全字段仅低于完全匹配字段，高于其余包含匹配字段。

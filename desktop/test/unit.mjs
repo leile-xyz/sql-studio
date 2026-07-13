@@ -612,6 +612,25 @@ function testAllColumnsPriority() {
   const partialItems = collect('lic');
   assert.ok(partialItems[0].allColumns);
   assert.equal(partialItems[1].label, 'applicant_id');
+
+  const collectAt = (sql, prefix) => ac.collectItems({
+    context,
+    textarea: { value: sql, selectionStart: sql.lastIndexOf(prefix) + prefix.length },
+    isWhere: false,
+    prefix,
+    refresh: () => {},
+  });
+  const withoutAllColumns = [
+    'SELECT 1 FROM budget WHERE id',
+    'SELECT 1 FROM budget GROUP BY id',
+    'SELECT 1 FROM budget HAVING id',
+    'SELECT 1 FROM budget ORDER BY id',
+    'SELECT 1 FROM budget b JOIN budget c ON id',
+    'SELECT 1 FROM budget id',
+  ];
+  for (const sql of withoutAllColumns) {
+    assert.ok(collectAt(sql, 'id').every(candidate => !candidate.allColumns), sql);
+  }
 }
 
 function testWhereAutocompleteExactMatches() {
@@ -770,7 +789,7 @@ function testSchemaScopedAutocomplete() {
 function testCompletionContextDetection() {
   const detectAt = (sql, prefix, cursor = sql.indexOf(prefix) + prefix.length) =>
     detectSqlCompletionContext(sql, cursor, prefix.length);
-  assert.equal(detectAt('SELECT fi FROM budget', 'fi'), 'field');
+  assert.equal(detectAt('SELECT fi FROM budget', 'fi'), 'select-list');
   assert.equal(detectAt('SELECT * FROM fi', 'fi'), 'table');
   assert.equal(detectAt('SELECT * FROM budget b JOIN fi', 'fi'), 'table');
   assert.equal(detectAt('SELECT * FROM db.fi', 'fi'), 'table');
@@ -780,11 +799,11 @@ function testCompletionContextDetection() {
   assert.equal(detectAt('SELECT * FROM budget WHERE fi', 'fi'), 'field');
   assert.equal(detectAt('UPDATE budget SET fi = 1', 'fi'), 'field');
   assert.equal(detectAt('SELECT * FROM `fi', 'fi'), 'table');
-  assert.equal(detectAt("SELECT 'FROM fake', fi FROM budget", 'fi'), 'field');
+  assert.equal(detectAt("SELECT 'FROM fake', fi FROM budget", 'fi'), 'select-list');
 
   const multiSql = 'SELECT fi FROM budget; SELECT * FROM fi';
   const secondCursor = multiSql.indexOf('FROM fi') + 'FROM fi'.length;
-  assert.equal(detectAt(multiSql, 'fi'), 'field');
+  assert.equal(detectAt(multiSql, 'fi'), 'select-list');
   assert.equal(detectAt(multiSql, 'fi', secondCursor), 'table');
 }
 
