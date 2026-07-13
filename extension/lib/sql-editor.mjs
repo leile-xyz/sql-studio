@@ -715,7 +715,7 @@ export class SqlAutocomplete {
     return rankCandidates(sqlFunctionCatalog(context.dbType), lowerPrefix, name => name)
       .map(name => {
         const value = upperCase ? name.toUpperCase() : name;
-        return { label: value, insert: value, kind };
+        return { label: value, insert: value, kind, functionCall: true };
       });
   }
 
@@ -807,7 +807,12 @@ export class SqlAutocomplete {
     this.hide();
     if (!item || !textarea) return;
     const from = Number.isInteger(item.replaceFrom) ? item.replaceFrom : this.state.from;
-    textarea.setRangeText(item.insert, from, textarea.selectionStart, 'end');
+    const insertion = item.functionCall ? item.insert + '() ' : item.insert + ' ';
+    textarea.setRangeText(insertion, from, textarea.selectionStart, 'end');
+    if (item.functionCall) {
+      const argumentPosition = from + item.insert.length + 1;
+      textarea.setSelectionRange(argumentPosition, argumentPosition);
+    }
     if (textarea.dataset.act === 'ed-input') this.onEditorChange(textarea);
     if (textarea.dataset.act === 'where-input') this.onWhereChange(textarea.value);
     textarea.focus();

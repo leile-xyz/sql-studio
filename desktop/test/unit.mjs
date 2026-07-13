@@ -547,6 +547,20 @@ function testDialectFunctionAutocomplete() {
   const labels = collect({ dbType: 'mysql', prefix: 'a' }).map(item => item.label.toLowerCase());
   assert.equal(labels.length, new Set(labels).size);
 
+  const countItem = collect({ dbType: 'mysql', prefix: 'cou' }).find(item => item.label === 'count');
+  const textarea = {
+    value: 'SELECT cou', selectionStart: 'SELECT cou'.length, selectionEnd: 'SELECT cou'.length, dataset: {},
+    setRangeText(value, start, end) { this.value = this.value.slice(0, start) + value + this.value.slice(end); },
+    setSelectionRange(start, end) { this.selectionStart = start; this.selectionEnd = end; },
+    focus() {},
+  };
+  ac.hide = () => {};
+  ac.state = { open: true, items: [countItem], selected: 0, from: 'SELECT '.length, textarea };
+  ac.accept();
+  assert.equal(textarea.value, 'SELECT count() ');
+  assert.equal(textarea.selectionStart, 'SELECT count('.length);
+  assert.equal(textarea.selectionEnd, 'SELECT count('.length);
+
   const collectFrom = (dbType, prefix) => {
     const context = { type: 'console', instance: 'inst', db: 'db', dbType };
     ac.tables.set(autocompleteKey({}), ['count_events', 'date_trunc_jobs']);
@@ -717,7 +731,7 @@ function testConsoleAutocompleteExactKeywords() {
       };
       ac.state = { open: true, items: [orderByItem], selected: 0, from: sql.length - 2, textarea };
       ac.accept();
-      assert.equal(textarea.value, 'ORDER BY');
+      assert.equal(textarea.value, 'ORDER BY ');
     }
   } finally {
     if (previousDocument) globalThis.document = previousDocument;
