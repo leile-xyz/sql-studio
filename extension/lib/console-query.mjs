@@ -140,6 +140,7 @@ export function buildConsolePageSql(options) {
   const pageSize = positiveSafeInteger(options.pageSize, 'pageSize');
   const offset = (page - 1) * pageSize;
   if (!Number.isSafeInteger(offset)) throw new Error('分页 OFFSET 超出安全整数范围');
+  if (isPostgresType(options.dbType)) return sql + '\nOFFSET ' + offset;
   return sql + '\nLIMIT ' + pageSize + ' OFFSET ' + offset;
 }
 

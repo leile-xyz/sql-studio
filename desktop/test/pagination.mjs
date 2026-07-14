@@ -38,7 +38,9 @@ async function testConsoleExecutionAndPaging() {
   assert.equal(result.pageCount, 3);
   assert.equal(result.context.db, 'db');
   assert.equal(calls.length, 2);
-  assert.match(calls[0].sql, /LIMIT 1000 OFFSET 0$/);
+  assert.match(calls[0].sql, /OFFSET 0$/);
+  assert.doesNotMatch(calls[0].sql, /LIMIT/i);
+  assert.equal(calls[0].limit, 1000);
   assert.match(calls[1].sql, /SELECT COUNT\(\*\) AS total/);
 
   const thirdPage = await fetchConsolePage({ api, origin: 'http://archery', result, page: 3, pageSize: 1000 });
@@ -47,6 +49,9 @@ async function testConsoleExecutionAndPaging() {
   assert.equal(thirdPage.page, 3);
   assert.equal(thirdPage.hasNext, false);
   assert.equal(calls.length, 4);
+  assert.match(calls[2].sql, /OFFSET 2000$/);
+  assert.doesNotMatch(calls[2].sql, /LIMIT/i);
+  assert.equal(calls[2].limit, 1000);
 
   const reduced = await fetchConsolePage({
     api: pagedApi(1500, []),
