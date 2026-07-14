@@ -42,7 +42,8 @@ async function testConsoleExecutionAndPaging() {
   assert.equal(result.hasNext, true);
   assert.equal(result.context.db, 'db');
   assert.equal(calls.length, 2);
-  assert.match(calls[0].sql, /LIMIT 100 OFFSET 0$/);
+  assert.match(calls[0].sql, /OFFSET 0$/);
+  assert.doesNotMatch(calls[0].sql, /LIMIT/i);
   assert.equal(calls[0].limit, 100);
   assert.match(calls[1].sql, /SELECT COUNT\(\*\) AS total/);
 
@@ -53,6 +54,9 @@ async function testConsoleExecutionAndPaging() {
   assert.equal(tenthPage.pageCount, 10);
   assert.equal(tenthPage.hasNext, false);
   assert.equal(calls.length, 4);
+  assert.match(calls[2].sql, /OFFSET 900$/);
+  assert.doesNotMatch(calls[2].sql, /LIMIT/i);
+  assert.equal(calls[2].limit, 100);
 
   const clampedPage = await fetchConsolePage({ api, origin: 'http://archery', result, page: 11, pageSize: 100 });
   assert.equal(clampedPage.page, 10);
@@ -65,7 +69,8 @@ async function testConsoleExecutionAndPaging() {
   });
   assert.equal(partialPage.rows.length, 400);
   assert.equal(partialPage.rows[0][0], 601);
-  assert.match(partialCalls[0].sql, /LIMIT 400 OFFSET 600$/);
+  assert.match(partialCalls[0].sql, /OFFSET 600$/);
+  assert.doesNotMatch(partialCalls[0].sql, /LIMIT/i);
   assert.equal(partialCalls[0].limit, 400);
 }
 

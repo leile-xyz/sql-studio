@@ -131,6 +131,7 @@ export function buildConsolePageSql(options) {
   const sql = normalizedSql(options && options.sql);
   if (!isPageableConsoleSql(sql, options.dbType)) throw new Error('仅支持为安全且无顶层分页参数的 SELECT 构造分页 SQL');
   const window = queryPageWindow(options);
+  if (isPostgresType(options.dbType)) return sql + '\nOFFSET ' + window.offset;
   return sql + '\nLIMIT ' + window.limit + ' OFFSET ' + window.offset;
 }
 
