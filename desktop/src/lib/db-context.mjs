@@ -32,6 +32,7 @@ export function buildBrowseSql(options) {
       .map(order => quoteIdentifier(order.col, options.dbType) + ' ' + String(order.dir).toUpperCase())
       .join(', ');
   }
+  if (isPostgresType(options.dbType)) return sql + ' OFFSET ' + window.offset;
   return sql + ' LIMIT ' + window.limit + ' OFFSET ' + window.offset;
 }
 
@@ -60,7 +61,9 @@ export function parseCountTotal(result) {
 }
 
 export function buildTableConsoleSql(options) {
-  const paginationPattern = / LIMIT \d+ OFFSET \d+$/;
+  const paginationPattern = isPostgresType(options.dbType)
+    ? / OFFSET \d+$/
+    : / LIMIT \d+ OFFSET \d+$/;
   return buildBrowseSql(options).replace(paginationPattern, '');
 }
 

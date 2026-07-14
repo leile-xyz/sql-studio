@@ -156,6 +156,43 @@
 
 <div id="toast"></div>
 
+<script>
+(function () {
+  function write(level, message) {
+    try {
+      var tauri = window.__TAURI__;
+      if (!tauri || !tauri.core || typeof tauri.core.invoke !== 'function') return;
+      tauri.core.invoke('frontend_log', {
+        level: String(level),
+        message: String(message)
+      }).catch(function () {});
+    } catch (_) {}
+  }
+  window.__SQL_STUDIO_STARTUP_LOG__ = write;
+  window.addEventListener('error', function (event) {
+    var detail = event.message + ' @ ' + event.filename + ':' + event.lineno + ':' + event.colno;
+    if (event.error && event.error.stack) detail += ' | ' + event.error.stack;
+    write('error', detail);
+  });
+  window.addEventListener('unhandledrejection', function (event) {
+    var reason = event.reason;
+    write('error', 'unhandled rejection: ' + (reason && reason.stack ? reason.stack : reason));
+  });
+  document.addEventListener('DOMContentLoaded', function () {
+    write('info', 'frontend DOMContentLoaded');
+  });
+  window.addEventListener('load', function () {
+    write('info', 'frontend window load');
+  });
+  write('info', 'frontend bootstrap loaded');
+  window.setTimeout(function () {
+    var envName = document.getElementById('envName');
+    write('info', 'frontend watchdog: readyState=' + document.readyState
+      + ', shell=' + Boolean(document.getElementById('topbar'))
+      + ', environmentResolved=' + Boolean(envName && envName.textContent !== '—'));
+  }, 3000);
+})();
+</script>
 <script type="module" src="app.js"></script>
 </body>
 </html>

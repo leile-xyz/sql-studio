@@ -3,6 +3,8 @@
 // Windows 凭据管理器（DPAPI）存取密码、CSV 原生另存为。
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod startup_log;
+
 use std::{collections::HashMap, fs, path::PathBuf, sync::Arc};
 
 use reqwest::cookie::{CookieStore, Jar};
@@ -261,11 +263,23 @@ async fn export_csv(
 /* ============ 入口 ============ */
 
 fn main() {
-    tauri::Builder::default()
+    let log_path = startup_log::default_log_path();
+    let _ = startup_log::reset_log(&log_path);
+    let _ = startup_log::write_log(&log_path, "INFO", "native main entered");
+    startup_log::install_panic_hook(log_path.clone());
+    let setup_log_path = log_path.clone();
+    let result = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_window_state::Builder::default().build())
-        .setup(|app| {
+        .setup(move |app| {
+            app.manage(startup_log::StartupLog::new(setup_log_path.clone()));
+            let _ = startup_log::write_log(&setup_log_path, "INFO", "tauri setup entered");
             let dir = app.path().app_config_dir()?;
+            let _ = startup_log::write_log(
+                &setup_log_path,
+                "INFO",
+                &format!("config directory resolved: {}", dir.display()),
+            );
             fs::create_dir_all(&dir)?;
             let path = dir.join("store.json");
             let data = fs::read_to_string(&path)
@@ -277,6 +291,7 @@ fn main() {
                 data: Mutex::new(data),
             });
             app.manage(Http::default());
+            let _ = startup_log::write_log(&setup_log_path, "INFO", "tauri setup completed");
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -289,8 +304,12 @@ fn main() {
             cred_get,
             cred_delete,
             app_version,
-            export_csv
+            export_csv,
+            startup_log::frontend_log
         ])
-        .run(tauri::generate_context!())
-        .expect("SQL Studio 启动失败");
+        .run(tauri::generate_context!());
+    if let Err(error) = result {
+        let _ = startup_log::write_log(&log_path, "ERROR", &format!("tauri run failed: {error}"));
+        panic!("SQL Studio 启动失败: {error}");
+    }
 }

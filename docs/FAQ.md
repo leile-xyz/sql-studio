@@ -28,6 +28,19 @@ Archery 使用 Django Cookie 会话。扩展需要读取 CSRF Cookie 并携带 S
 
 从 Microsoft 安装 WebView2 Runtime 后重新启动程序。
 
+## Windows 桌面端白屏或关闭按钮无响应怎么办？
+
+桌面端每次启动都会覆盖写入启动诊断日志：`%TEMP%\sql-studio-startup.log`。日志包含 Rust 宿主初始化、前端 DOM 加载、JavaScript 全局错误、未处理 Promise 和启动看门狗状态；关闭程序后复制该文件即可定位卡在哪个阶段。
+
+如果日志只有 `native main entered`、`tauri setup completed`，没有 `frontend bootstrap loaded`，通常是 WebView2 初始化或显卡渲染问题。先修复/重新安装 Microsoft Edge WebView2 Runtime；仍无法启动时，可在 PowerShell 中临时禁用 GPU 验证：
+
+```powershell
+$env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="--disable-gpu"
+.\sql-studio.exe
+```
+
+该日志每次启动会被清空，不包含 SQL 查询结果或密码。
+
 ## SmartScreen 为什么提示未知发布者？
 
 当前构建未配置代码签名。请自行从源码构建，或只运行可信发布渠道提供且校验值一致的产物。

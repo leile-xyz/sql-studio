@@ -202,7 +202,7 @@ function testQueryRowLimitHelpers() {
   );
   assert.equal(
     buildBrowseSql({ dbType: 'pgsql', schema: 'public', table: 'users', page: 2, pageSize: 600 }),
-    'SELECT * FROM "public"."users" LIMIT 400 OFFSET 600',
+    'SELECT * FROM "public"."users" OFFSET 600',
   );
   assert.match(buildCountSql({ dbType: 'mysql', table: 'users', where: 'status = 1' }), /WHERE status = 1\nLIMIT 1000/);
   assert.throws(() => queryPageWindow({ page: 3, pageSize: 600 }), /不能超过前 1000 条/);

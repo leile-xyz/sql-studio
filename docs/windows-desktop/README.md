@@ -36,6 +36,8 @@ desktop/src-tauri/target/release/sql-studio.exe
 - 密码：Windows 凭据管理器，服务名 `sql-studio`，账号为环境 `id`；
 - 删除 exe 不会自动删除配置或凭据。
 
+启动白屏或关闭无响应时，查看 `%TEMP%\sql-studio-startup.log`。程序每次启动会重新生成该文件，记录 Rust 初始化和前端启动错误；详细排查步骤见 [常见问题](../FAQ.md)。
+
 完整清理方式见 [配置与本地数据](../configuration.md)。
 
 ## 网络与安全边界
