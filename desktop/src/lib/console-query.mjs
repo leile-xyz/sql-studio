@@ -1,6 +1,7 @@
 import { isPostgresType } from './db-context.mjs';
+import { MAX_QUERY_ROWS, queryPageWindow } from './query-row-limit.mjs';
 
-export const DEFAULT_CONSOLE_PAGE_SIZE = 1000;
+export const DEFAULT_CONSOLE_PAGE_SIZE = 100;
 export const PAGE_SIZE_OPTIONS = Object.freeze([20, 50, 100, 200, 500, 1000]);
 
 const MAIN_STATEMENT_KEYWORDS = Object.freeze(new Set([
@@ -117,13 +118,6 @@ function normalizedSql(source) {
   return sql;
 }
 
-function positiveSafeInteger(value, name) {
-  if (!Number.isSafeInteger(value) || value <= 0) {
-    throw new Error(name + ' 必须是正安全整数');
-  }
-  return value;
-}
-
 export function isPageableConsoleSql(source, dbType = '') {
   const tokens = sqlWordTokens(source, dbType);
   const topLevelWords = tokens.filter(token => token.depth === 0).map(token => token.word);
@@ -136,15 +130,12 @@ export function isPageableConsoleSql(source, dbType = '') {
 export function buildConsolePageSql(options) {
   const sql = normalizedSql(options && options.sql);
   if (!isPageableConsoleSql(sql, options.dbType)) throw new Error('仅支持为安全且无顶层分页参数的 SELECT 构造分页 SQL');
-  const page = positiveSafeInteger(options.page, 'page');
-  const pageSize = positiveSafeInteger(options.pageSize, 'pageSize');
-  const offset = (page - 1) * pageSize;
-  if (!Number.isSafeInteger(offset)) throw new Error('分页 OFFSET 超出安全整数范围');
-  return sql + '\nLIMIT ' + pageSize + ' OFFSET ' + offset;
+  const window = queryPageWindow(options);
+  return sql + '\nLIMIT ' + window.limit + ' OFFSET ' + window.offset;
 }
 
 export function buildConsoleCountSql(options) {
   const sql = normalizedSql(options && options.sql);
   if (!isPageableConsoleSql(sql, options.dbType)) throw new Error('仅支持为安全且无顶层分页参数的 SELECT 构造 COUNT SQL');
-  return 'SELECT COUNT(*) AS total\nFROM (\n' + sql + '\n) AS sql_studio_count';
+  return 'SELECT COUNT(*) AS total\nFROM (\n' + sql + '\nLIMIT ' + MAX_QUERY_ROWS + '\n) AS sql_studio_count';
 }

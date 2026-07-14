@@ -1,10 +1,11 @@
-import { buildConsolePageSql, DEFAULT_CONSOLE_PAGE_SIZE } from './console-query.mjs';
+import { buildConsolePageSql } from './console-query.mjs';
 import { countConsoleRows } from './console-execution.mjs';
 import { buildBrowseSql, buildCountSql, parseCountTotal } from './db-context.mjs';
 import { collectPagedRows } from './paged-export.mjs';
 import { tableDataColumns } from './table-view.mjs';
+import { MAX_QUERY_ROWS, validateQueryRows } from './query-row-limit.mjs';
 
-export const DEFAULT_EXPORT_PAGE_SIZE = 1_000;
+export const DEFAULT_EXPORT_PAGE_SIZE = MAX_QUERY_ROWS;
 
 function stableExportOrder(tab) {
   const order = (tab.orderBy || []).map(item => ({ ...item }));
@@ -52,11 +53,13 @@ export async function collectTableExport(options) {
 export async function collectConsoleExport(options) {
   const result = options.result;
   const columns = Object.freeze(result.columns.map(name => Object.freeze({ name })));
-  if (!result.pageable) return Object.freeze({ columns, rows: result.rows });
+  if (!result.pageable) {
+    return Object.freeze({ columns, rows: validateQueryRows(result.rows) });
+  }
   const totalRows = await countConsoleRows({ api: options.api, origin: options.origin, result });
   const collected = await collectPagedRows({
     totalRows,
-    pageSize: DEFAULT_CONSOLE_PAGE_SIZE,
+    pageSize: DEFAULT_EXPORT_PAGE_SIZE,
     columns: result.columns,
     fetchPage: async request => options.api.query(options.origin, {
       ...result.context,

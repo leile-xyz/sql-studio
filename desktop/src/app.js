@@ -11,7 +11,8 @@ import { createCsvExportActions } from './lib/csv-export-actions.mjs';
 import { saveCsvText } from './lib/csv-save.mjs';
 import { renderResourceTree } from './lib/resource-tree-view.mjs';
 import { renderTableView, resolveTableSubview } from './lib/table-view.mjs';
-import { buildBrowseSql, buildCountSql, findDbType, isPostgresType, parseCountTotal } from './lib/db-context.mjs';
+import { findDbType, isPostgresType } from './lib/db-context.mjs';
+import { loadTableData, prepareTableDataQuery } from './lib/table-data-loader.mjs';
 import { renderTabBarView, showAllConsolesMenu, showConsoleMenu, showTabContextMenu } from './lib/console-menu-view.mjs';
 import { ConsoleRenameController } from './lib/console-rename.mjs';
 import { closeWorkspaceTabs, consoleSessionState, createNewConsole, defaultConsoleTab, deleteWorkspaceConsole, restoreConsoleWorkspace } from './lib/console-workspace.mjs';
@@ -656,29 +657,22 @@ async function ensureData(tab) {
   const requestId = ++tab.dataRequestId;
   tab.dataLoading = true; tab.totalLoading = true;
   tab.dataErr = ''; tab.totalErr = ''; tab.totalRows = null; tab.pageCount = null;
-  const browseSql = buildBrowseSql(tab);
-  const countSql = buildCountSql(tab);
-  tab.sql = browseSql;
-  if (curTab() === tab) renderBody();
-  const context = { instance: tab.instance, db: tab.db, schema: tab.schema || '', table: tab.table };
-  const [dataResult, totalResult] = await Promise.allSettled([
-    api.query(state.origin, { ...context, sql: browseSql, limit: tab.pageSize }),
-    api.query(state.origin, { ...context, sql: countSql, limit: 1 }),
-  ]);
-  if (tab.dataRequestId !== requestId) return;
-  if (dataResult.status === 'fulfilled') tab.data = dataResult.value;
-  else tab.dataErr = dataResult.reason.message;
-  if (totalResult.status === 'fulfilled') {
-    try {
-      tab.totalRows = parseCountTotal(totalResult.value);
-      tab.pageCount = Math.max(1, Math.ceil(tab.totalRows / tab.pageSize));
-    } catch (e) { tab.totalErr = e.message; }
-  } else tab.totalErr = totalResult.reason.message;
-  tab.dataLoading = false; tab.totalLoading = false;
-  if (tab.pageCount && tab.page > tab.pageCount) {
-    tab.page = tab.pageCount; tab.data = null; return ensureData(tab);
+  let request;
+  try {
+    request = prepareTableDataQuery(tab);
+    tab.page = request.page; tab.sql = request.browseSql;
+  } catch (error) {
+    tab.dataLoading = false; tab.totalLoading = false; tab.dataErr = error.message;
+    if (curTab() === tab) renderBody();
+    return;
   }
-  tab.hasNext = tab.pageCount ? tab.page < tab.pageCount : false;
+  if (curTab() === tab) renderBody();
+  const loaded = await loadTableData({ api, origin: state.origin, tab, request });
+  if (tab.dataRequestId !== requestId) return;
+  if (loaded.data) tab.data = loaded.data;
+  tab.dataErr = loaded.dataErr; tab.totalRows = loaded.totalRows; tab.totalErr = loaded.totalErr;
+  tab.page = loaded.page; tab.pageCount = loaded.pageCount; tab.hasNext = loaded.hasNext; tab.sql = loaded.sql;
+  tab.dataLoading = false; tab.totalLoading = false;
   if (curTab() === tab) renderBody();
 }
 function reloadData(tab) { tab.data = null; ensureData(tab); }

@@ -2,6 +2,7 @@ import { isPostgresType, qualifiedTableName } from './db-context.mjs';
 import { PAGE_SIZE_OPTIONS } from './console-query.mjs';
 import { renderGrid } from './grid.mjs';
 import { ICO } from './icons.mjs';
+import { hasQueryRowCount } from './query-row-limit.mjs';
 import { highlightSql } from './sql-editor.mjs';
 
 const NUMERIC_TYPES = Object.freeze(new Set([
@@ -23,6 +24,7 @@ function errorBox(title, message) {
 
 function paginationState(tab, rowCount) {
   const hasTotal = Number.isSafeInteger(tab.totalRows) && tab.totalRows >= 0;
+  const showPagination = hasQueryRowCount(tab.totalRows);
   const pageSize = Number(tab.pageSize);
   const totalPages = hasTotal && Number.isSafeInteger(pageSize) && pageSize > 0
     ? Math.max(1, Math.ceil(tab.totalRows / pageSize))
@@ -32,7 +34,7 @@ function paginationState(tab, rowCount) {
     ? `第 <b>${tab.page}</b> 页`
     : `第 <b>${tab.page}</b> / ${totalPages} 页`;
   if (tab.totalLoading) {
-    return { totalPages, pageLabel, summary: `总数统计中… · 本页 ${rowCount} 条`, loading };
+    return { totalPages, pageLabel, summary: `总数统计中… · 本页 ${rowCount} 条`, loading, showPagination };
   }
   if (tab.totalErr) {
     return {
@@ -40,17 +42,34 @@ function paginationState(tab, rowCount) {
       pageLabel,
       summary: `<span style="color:var(--red)" title="${escapeAttribute(tab.totalErr)}">总数查询失败</span> · 本页 ${rowCount} 条`,
       loading,
+      showPagination,
     };
   }
   if (hasTotal) {
     return {
       totalPages,
       pageLabel,
-      summary: `共 ${tab.totalRows.toLocaleString('zh-CN')} 条 · 本页 ${rowCount} 条`,
+      summary: `本页 ${rowCount} 条`,
       loading,
+      showPagination,
     };
   }
-  return { totalPages, pageLabel, summary: `总数待统计 · 本页 ${rowCount} 条`, loading };
+  return { totalPages, pageLabel, summary: `总数待统计 · 本页 ${rowCount} 条`, loading, showPagination };
+}
+
+function paginationControlsHtml(tab, pagination) {
+  if (!pagination.showPagination) return '';
+  const options = PAGE_SIZE_OPTIONS
+    .map(size => `<option ${size === tab.pageSize ? 'selected' : ''}>${size}</option>`)
+    .join('');
+  return `<span style="width:1px;height:16px;background:var(--border)"></span>
+      每页 <select data-act="pagesize">${options}</select> 条
+      <span style="width:1px;height:16px;background:var(--border)"></span>
+      <button class="pg-btn" data-act="page" data-page="1" ${pagination.loading || tab.page <= 1 ? 'disabled' : ''}>⏮</button>
+      <button class="pg-btn" data-act="page" data-page="${tab.page - 1}" ${pagination.loading || tab.page <= 1 ? 'disabled' : ''}>◀</button>
+      <span class="pg-info">${pagination.pageLabel}</span>
+      <button class="pg-btn" data-act="page" data-page="${tab.page + 1}" ${pagination.loading || !tab.hasNext ? 'disabled' : ''}>▶</button>
+      <button class="pg-btn" data-act="page" data-page="${pagination.totalPages || tab.page}" ${pagination.loading || !tab.hasNext ? 'disabled' : ''}>⏭</button>`;
 }
 
 export function resolveTableSubview(tab) {
@@ -116,14 +135,7 @@ function renderDataView(tab, subview) {
     </div>${gridArea}
     <div class="pagerbar">
       <span>${pagination.summary}${tab.data && tab.data.isMasked ? ' · 已脱敏' : ''}</span>
-      <span style="width:1px;height:16px;background:var(--border)"></span>
-      每页 <select data-act="pagesize">${PAGE_SIZE_OPTIONS.map(size => `<option ${size === tab.pageSize ? 'selected' : ''}>${size}</option>`).join('')}</select> 条
-      <span style="width:1px;height:16px;background:var(--border)"></span>
-      <button class="pg-btn" data-act="page" data-page="1" ${pagination.loading || tab.page <= 1 ? 'disabled' : ''}>⏮</button>
-      <button class="pg-btn" data-act="page" data-page="${tab.page - 1}" ${pagination.loading || tab.page <= 1 ? 'disabled' : ''}>◀</button>
-      <span class="pg-info">${pagination.pageLabel}</span>
-      <button class="pg-btn" data-act="page" data-page="${tab.page + 1}" ${pagination.loading || !tab.hasNext ? 'disabled' : ''}>▶</button>
-      <button class="pg-btn" data-act="page" data-page="${pagination.totalPages || tab.page}" ${pagination.loading || !tab.hasNext ? 'disabled' : ''}>⏭</button>
+      ${paginationControlsHtml(tab, pagination)}
       <span class="grow" style="flex:1"></span>
     </div>`;
   return {

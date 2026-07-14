@@ -1,3 +1,5 @@
+import { capQueryRowCount, MAX_QUERY_ROWS, queryPageWindow } from './query-row-limit.mjs';
+
 const POSTGRES_TYPES = Object.freeze(['pgsql', 'postgres', 'postgresql']);
 
 export function isPostgresType(dbType) {
@@ -22,6 +24,7 @@ export function qualifiedTableName(options) {
 }
 
 export function buildBrowseSql(options) {
+  const window = queryPageWindow(options);
   let sql = 'SELECT * FROM ' + qualifiedTableName(options);
   if (String(options.where || '').trim()) sql += ' WHERE ' + String(options.where).trim();
   if (Array.isArray(options.orderBy) && options.orderBy.length) {
@@ -29,16 +32,18 @@ export function buildBrowseSql(options) {
       .map(order => quoteIdentifier(order.col, options.dbType) + ' ' + String(order.dir).toUpperCase())
       .join(', ');
   }
-  const offset = (options.page - 1) * options.pageSize;
-  if (isPostgresType(options.dbType)) return sql + ' OFFSET ' + offset;
-  return sql + ' LIMIT ' + options.pageSize + ' OFFSET ' + offset;
+  return sql + ' LIMIT ' + window.limit + ' OFFSET ' + window.offset;
 }
 
 export function buildCountSql(options) {
-  let sql = 'SELECT COUNT(*) AS total FROM ' + qualifiedTableName(options);
+  let sourceSql = 'SELECT 1 FROM ' + qualifiedTableName(options);
   const where = String(options.where || '').trim();
-  if (where) sql += ' WHERE ' + where;
-  return sql;
+  if (where) sourceSql += ' WHERE ' + where;
+  return `SELECT COUNT(*) AS total
+FROM (
+${sourceSql}
+LIMIT ${MAX_QUERY_ROWS}
+) AS sql_studio_count`;
 }
 
 export function parseCountTotal(result) {
@@ -51,13 +56,11 @@ export function parseCountTotal(result) {
   if (!Number.isSafeInteger(total) || total < 0) {
     throw new Error('COUNT(*) 未返回有效的非负安全整数');
   }
-  return total;
+  return capQueryRowCount(total);
 }
 
 export function buildTableConsoleSql(options) {
-  const paginationPattern = isPostgresType(options.dbType)
-    ? / OFFSET \d+$/
-    : / LIMIT \d+ OFFSET \d+$/;
+  const paginationPattern = / LIMIT \d+ OFFSET \d+$/;
   return buildBrowseSql(options).replace(paginationPattern, '');
 }
 

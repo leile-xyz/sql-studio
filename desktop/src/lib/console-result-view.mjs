@@ -1,6 +1,7 @@
 import { PAGE_SIZE_OPTIONS } from './console-query.mjs';
 import { renderGrid } from './grid.mjs';
 import { ICO } from './icons.mjs';
+import { hasQueryRowCount } from './query-row-limit.mjs';
 
 const NUMERIC_TYPES = Object.freeze(new Set([
   'TINY', 'SHORT', 'LONG', 'LONGLONG', 'INT24', 'FLOAT', 'DOUBLE',
@@ -23,8 +24,7 @@ function resultTabs(results, activeIndex) {
   return results.map((result, index) => {
     const active = index === activeIndex ? ' active' : '';
     const dot = result.ok ? '<span class="rt-dot ok"></span>' : '<span class="rt-dot bad"></span>';
-    const rowCount = Number.isSafeInteger(result.totalRows) ? result.totalRows : result.rows.length;
-    const meta = result.ok ? `${rowCount.toLocaleString('zh-CN')} 行 · ${formatSeconds(result.elapsed)}` : '失败';
+    const meta = result.ok ? `${result.rows.length.toLocaleString('zh-CN')} 行 · ${formatSeconds(result.elapsed)}` : '失败';
     return `<span class="res-tab${active}" data-act="res-tab" data-i="${index}" title="${escapeAttribute(result.sql)}">${dot}结果 ${index + 1}<span class="rt-meta">${meta}</span></span>`;
   }).join('');
 }
@@ -34,14 +34,12 @@ function pagerSummary(result) {
   if (result.totalErr) {
     return `<span style="color:var(--red)" title="${escapeAttribute(result.totalErr)}">总数查询失败</span> · 本页 ${result.rows.length} 条`;
   }
-  if (Number.isSafeInteger(result.totalRows)) {
-    return `共 ${result.totalRows.toLocaleString('zh-CN')} 条 · 本页 ${result.rows.length} 条`;
-  }
+  if (Number.isSafeInteger(result.totalRows)) return `本页 ${result.rows.length} 条`;
   return `总数待统计 · 本页 ${result.rows.length} 条`;
 }
 
-function pagerHtml(result) {
-  if (!result.pageable) return '';
+function pagerControlsHtml(result) {
+  if (!hasQueryRowCount(result.totalRows)) return '';
   const loading = result.dataLoading || result.totalLoading;
   const totalPages = Number.isSafeInteger(result.pageCount) ? result.pageCount : null;
   const pageLabel = totalPages == null ? `第 <b>${result.page}</b> 页` : `第 <b>${result.page}</b> / ${totalPages} 页`;
@@ -50,16 +48,21 @@ function pagerHtml(result) {
   const options = PAGE_SIZE_OPTIONS
     .map(size => `<option ${size === result.pageSize ? 'selected' : ''}>${size}</option>`)
     .join('');
-  return `<div class="pagerbar">
-    <span>${pagerSummary(result)}${result.isMasked ? ' · 已脱敏' : ''}</span>
-    <span style="width:1px;height:16px;background:var(--border)"></span>
+  return `<span style="width:1px;height:16px;background:var(--border)"></span>
     每页 <select data-act="con-pagesize" ${loading ? 'disabled' : ''}>${options}</select> 条
     <span style="width:1px;height:16px;background:var(--border)"></span>
     <button class="pg-btn" data-act="con-page" data-page="1" ${loading || result.page <= 1 ? 'disabled' : ''}>⏮</button>
     <button class="pg-btn" data-act="con-page" data-page="${result.page - 1}" ${loading || result.page <= 1 ? 'disabled' : ''}>◀</button>
     <span class="pg-info">${pageLabel}</span>
     <button class="pg-btn" data-act="con-page" data-page="${result.page + 1}" ${loading || !hasNext ? 'disabled' : ''}>▶</button>
-    <button class="pg-btn" data-act="con-page" data-page="${maxPage}" ${loading || !hasNext ? 'disabled' : ''}>⏭</button>
+    <button class="pg-btn" data-act="con-page" data-page="${maxPage}" ${loading || !hasNext ? 'disabled' : ''}>⏭</button>`;
+}
+
+function pagerHtml(result) {
+  if (!result.pageable) return '';
+  return `<div class="pagerbar">
+    <span>${pagerSummary(result)}${result.isMasked ? ' · 已脱敏' : ''}</span>
+    ${pagerControlsHtml(result)}
     <span class="grow" style="flex:1"></span>
   </div>`;
 }
@@ -89,10 +92,9 @@ export function renderConsoleResultView(tab) {
     ? Math.min(tab.activeResult, results.length - 1)
     : results.length - 1;
   const result = results[activeIndex];
-  const total = Number.isSafeInteger(result.totalRows) ? `共 ${result.totalRows.toLocaleString('zh-CN')} 行 · ` : '';
   const selection = tab.executedSelection ? ' · 已执行选中内容' : '';
   const headMeta = result.ok
-    ? `${total}本页 ${result.rows.length} 行 · ${formatSeconds(result.elapsed)}${result.isMasked ? ' · 已脱敏' : ''}${selection}`
+    ? `本页 ${result.rows.length} 行 · ${formatSeconds(result.elapsed)}${result.isMasked ? ' · 已脱敏' : ''}${selection}`
     : `执行失败${selection}`;
   const disabled = !result.ok || result.dataLoading ? ' disabled' : '';
   const html = `<div class="res-tabs">${resultTabs(results, activeIndex)}</div>

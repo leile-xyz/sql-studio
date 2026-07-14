@@ -5,6 +5,7 @@ import {
   isPageableConsoleSql,
 } from './console-query.mjs';
 import { parseCountTotal } from './db-context.mjs';
+import { cappedQueryPage, MAX_QUERY_ROWS, queryPageWindow, validateQueryRows } from './query-row-limit.mjs';
 
 const COUNT_QUERY_LIMIT = 1;
 
@@ -37,13 +38,14 @@ function queryOptions(options, sql, limit) {
   return { ...options.context, sql, limit };
 }
 
-function successfulResult(base, response) {
+function successfulResult(options) {
+  const { base, response, rowLimit } = options;
   return {
     ...base,
     ok: true,
     columns: response.columns,
     types: response.types,
-    rows: response.rows,
+    rows: validateQueryRows(response.rows, rowLimit),
     elapsed: response.elapsed,
     fullSql: response.fullSql,
     isMasked: response.isMasked,
@@ -55,9 +57,9 @@ async function executeSingleQuery(options) {
   try {
     const response = await options.api.query(
       options.origin,
-      queryOptions(options, options.sql, DEFAULT_CONSOLE_PAGE_SIZE),
+      queryOptions(options, options.sql, MAX_QUERY_ROWS),
     );
-    return successfulResult(base, response);
+    return successfulResult({ base, response, rowLimit: MAX_QUERY_ROWS });
   } catch (error) {
     return { ...base, error: error.message };
   }
@@ -65,6 +67,7 @@ async function executeSingleQuery(options) {
 
 async function executePageableQuery(options) {
   const base = resultBase({ ...options, pageable: true });
+  const window = queryPageWindow({ page: base.page, pageSize: base.pageSize });
   const pageSql = buildConsolePageSql({
     sql: options.sql,
     dbType: options.context.dbType,
@@ -73,11 +76,16 @@ async function executePageableQuery(options) {
   });
   const countSql = buildConsoleCountSql({ sql: options.sql, dbType: options.context.dbType });
   const [dataResult, totalResult] = await Promise.allSettled([
-    options.api.query(options.origin, queryOptions(options, pageSql, base.pageSize)),
+    options.api.query(options.origin, queryOptions(options, pageSql, window.limit)),
     options.api.query(options.origin, queryOptions(options, countSql, COUNT_QUERY_LIMIT)),
   ]);
   if (dataResult.status === 'rejected') return { ...base, error: dataResult.reason.message };
-  const result = successfulResult(base, dataResult.value);
+  let result;
+  try {
+    result = successfulResult({ base, response: dataResult.value, rowLimit: window.limit });
+  } catch (error) {
+    return { ...base, error: error.message };
+  }
   if (totalResult.status === 'rejected') {
     return { ...result, hasNext: false, totalErr: totalResult.reason.message };
   }
@@ -96,6 +104,7 @@ export function executeConsoleStatement(options) {
 }
 
 async function fetchPageAndCount(options) {
+  const window = queryPageWindow({ page: options.page, pageSize: options.pageSize });
   const sql = buildConsolePageSql({
     sql: options.result.sql,
     dbType: options.result.context.dbType,
@@ -107,18 +116,22 @@ async function fetchPageAndCount(options) {
     dbType: options.result.context.dbType,
   });
   const [dataResult, totalResult] = await Promise.allSettled([
-    options.api.query(options.origin, { ...options.result.context, sql, limit: options.pageSize }),
+    options.api.query(options.origin, { ...options.result.context, sql, limit: window.limit }),
     options.api.query(options.origin, { ...options.result.context, sql: countSql, limit: COUNT_QUERY_LIMIT }),
   ]);
   if (dataResult.status === 'rejected') throw dataResult.reason;
+  const response = {
+    ...dataResult.value,
+    rows: validateQueryRows(dataResult.value.rows, window.limit),
+  };
   if (totalResult.status === 'rejected') {
-    return { response: dataResult.value, totalRows: null, pageCount: null, totalErr: totalResult.reason.message };
+    return { response, totalRows: null, pageCount: null, totalErr: totalResult.reason.message };
   }
   try {
     const totalRows = parseCountTotal(totalResult.value);
-    return { response: dataResult.value, totalRows, pageCount: Math.max(1, Math.ceil(totalRows / options.pageSize)), totalErr: '' };
+    return { response, totalRows, pageCount: Math.max(1, Math.ceil(totalRows / options.pageSize)), totalErr: '' };
   } catch (error) {
-    return { response: dataResult.value, totalRows: null, pageCount: null, totalErr: error.message };
+    return { response, totalRows: null, pageCount: null, totalErr: error.message };
   }
 }
 
@@ -146,13 +159,14 @@ function pageResult(options) {
 }
 
 export async function fetchConsolePage(options) {
-  const loaded = await fetchPageAndCount(options);
-  if (loaded.pageCount != null && options.page > loaded.pageCount) {
+  const page = cappedQueryPage(options);
+  const loaded = await fetchPageAndCount({ ...options, page });
+  if (loaded.pageCount != null && page > loaded.pageCount) {
     const page = loaded.pageCount;
     const lastPage = await fetchPageAndCount({ ...options, page });
     return pageResult({ result: options.result, loaded: lastPage, page, pageSize: options.pageSize });
   }
-  return pageResult({ result: options.result, loaded, page: options.page, pageSize: options.pageSize });
+  return pageResult({ result: options.result, loaded, page, pageSize: options.pageSize });
 }
 
 export async function countConsoleRows(options) {

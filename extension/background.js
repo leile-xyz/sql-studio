@@ -8,6 +8,7 @@
  */
 import { ACTIONS } from './lib/actions.js';
 import { parseTableDescription } from './lib/ddl.js';
+import { validateQueryLimit, validateQueryRows } from './lib/query-row-limit.mjs';
 
 /* ============ 打开主界面（点击工具栏图标） ============ */
 async function openApp() {
@@ -213,6 +214,7 @@ async function describeTable({ origin, instance, db, schema = '', table }) {
 
 /** 执行 SQL */
 async function runQuery({ origin, instance, db, schema = '', table = '', sql, limit }) {
+    const rowLimit = validateQueryLimit(limit ?? 100);
     const headers = await postHeaders(origin);
     const body = new URLSearchParams({
         instance_name: instance,
@@ -220,7 +222,7 @@ async function runQuery({ origin, instance, db, schema = '', table = '', sql, li
         schema_name: schema,
         tb_name: table,
         sql_content: sql,
-        limit_num: String(limit || 100)
+        limit_num: String(rowLimit)
     }).toString();
     const json = await requestJson(`${origin}/query/`, { method: 'POST', headers, body });
     const d = json.data || {};
@@ -228,7 +230,7 @@ async function runQuery({ origin, instance, db, schema = '', table = '', sql, li
     return {
         columns: d.column_list || [],
         types: d.column_type || [],
-        rows: d.rows || [],
+        rows: validateQueryRows(d.rows || [], rowLimit),
         elapsed: d.query_time || 0,
         affected: d.affected_rows,
         fullSql: d.full_sql || sql,

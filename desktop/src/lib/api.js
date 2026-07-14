@@ -4,6 +4,7 @@
  * 对 app.js 的接口签名与扩展版完全一致。
  */
 import { parseTableDescription } from './ddl.js';
+import { validateQueryLimit, validateQueryRows } from './query-row-limit.mjs';
 
 function invoke(cmd, args) {
     return window.__TAURI__.core.invoke(cmd, args).catch(e => {
@@ -65,19 +66,20 @@ export const api = {
     },
     /** 执行 SQL → { columns, types, rows, elapsed, affected, fullSql, isMasked } */
     query: async (origin, options) => {
+        const limit = validateQueryLimit(options.limit ?? 100);
         const d = (await post(origin, '/query/', {
             instance_name: options.instance,
             db_name: options.db,
             schema_name: options.schema || '',
             tb_name: options.table || '',
             sql_content: options.sql,
-            limit_num: String(options.limit || 100)
+            limit_num: String(limit)
         })) || {};
         if (d.error) throw new Error(d.error);
         return {
             columns: d.column_list || [],
             types: d.column_type || [],
-            rows: d.rows || [],
+            rows: validateQueryRows(d.rows || [], limit),
             elapsed: d.query_time || 0,
             affected: d.affected_rows,
             fullSql: d.full_sql || options.sql,

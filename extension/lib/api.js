@@ -3,6 +3,7 @@
  * 代发（绕过页面 CORS、自动携带会话 Cookie、注入 CSRF）。这里只负责消息往返。
  */
 import { ACTIONS } from './actions.js';
+import { validateQueryLimit } from './query-row-limit.mjs';
 
 function send(type, payload) {
     return new Promise((resolve, reject) => {
@@ -35,5 +36,9 @@ export const api = {
     /** 表结构 → { ddl, columns:[...] } */
     describe: (origin, context) => send(ACTIONS.DESCRIBE, { origin, ...context }),
     /** 执行 SQL → { columns, columnType, rows, elapsed, affected, error } */
-    query: (origin, options) => send(ACTIONS.QUERY, { origin, ...options })
+    query: (origin, options) => send(ACTIONS.QUERY, {
+        origin,
+        ...options,
+        limit: validateQueryLimit(options.limit ?? 100)
+    })
 };

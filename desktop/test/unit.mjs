@@ -93,7 +93,7 @@ function testDbContextHelpers() {
     page: 1,
     pageSize: 100,
   };
-  assert.equal(buildBrowseSql(postgresBrowse), 'SELECT * FROM "public"."end_users" OFFSET 0');
+  assert.equal(buildBrowseSql(postgresBrowse), 'SELECT * FROM "public"."end_users" LIMIT 100 OFFSET 0');
   assert.equal(buildTableConsoleSql(postgresBrowse), 'SELECT * FROM "public"."end_users"');
   assert.equal(
     buildBrowseSql({ ...postgresBrowse, dbType: 'mysql', schema: '', table: 't_user' }),
@@ -309,6 +309,7 @@ async function testDesktopExtensionParity() {
     'console-menu-view.mjs',
     'csv-export-actions.mjs',
     'console-execution.mjs',
+    'query-row-limit.mjs',
     'console-query.mjs',
     'console-result-view.mjs',
     'export-service.mjs',
@@ -316,6 +317,7 @@ async function testDesktopExtensionParity() {
     'app-events.mjs',
     'resource-tree-view.mjs',
     'table-view.mjs',
+    'table-data-loader.mjs',
     'grid.mjs',
     'icons.mjs',
     'csv.mjs',
@@ -858,7 +860,7 @@ function testContextAwareAutocompletePriority() {
 }
 
 function testConsoleQueryPagination() {
-  assert.equal(DEFAULT_CONSOLE_PAGE_SIZE, 1000);
+  assert.equal(DEFAULT_CONSOLE_PAGE_SIZE, 100);
   assert.deepEqual(PAGE_SIZE_OPTIONS, [20, 50, 100, 200, 500, 1000]);
   assert.ok(Object.isFrozen(PAGE_SIZE_OPTIONS));
   for (const sql of [
@@ -886,12 +888,12 @@ function testConsoleQueryPagination() {
   assert.equal(isPageableConsoleSql("SELECT payload #>> '{name}' FROM events", 'pgsql'), true);
   assert.equal(isPageableConsoleSql("SELECT payload #>> '{name}' FROM events LIMIT 10", 'pgsql'), false);
   assert.equal(
-    buildConsolePageSql({ sql: 'SELECT * FROM t_user;', page: 3, pageSize: 1000 }),
-    'SELECT * FROM t_user\nLIMIT 1000 OFFSET 2000',
+    buildConsolePageSql({ sql: 'SELECT * FROM t_user;', page: 2, pageSize: 600 }),
+    'SELECT * FROM t_user\nLIMIT 400 OFFSET 600',
   );
   assert.equal(
     buildConsoleCountSql({ sql: 'SELECT DISTINCT status FROM t_user;' }),
-    'SELECT COUNT(*) AS total\nFROM (\nSELECT DISTINCT status FROM t_user\n) AS sql_studio_count',
+    'SELECT COUNT(*) AS total\nFROM (\nSELECT DISTINCT status FROM t_user\nLIMIT 1000\n) AS sql_studio_count',
   );
   assert.throws(
     () => buildConsolePageSql({ sql: 'SELECT * FROM t_user LIMIT 10', page: 1, pageSize: 1000 }),
