@@ -3184,6 +3184,9 @@ dependencies = [
  "tauri-plugin-dialog",
  "tauri-plugin-window-state",
  "tokio",
+ "windows",
+ "windows-version",
+ "winreg",
 ]
 
 [[package]]

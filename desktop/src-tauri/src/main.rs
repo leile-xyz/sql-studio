@@ -3,6 +3,7 @@
 // Windows 凭据管理器（DPAPI）存取密码、CSV 原生另存为。
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod startup_diagnostics;
 mod startup_log;
 
 use std::{collections::HashMap, fs, path::PathBuf, sync::Arc};
@@ -10,7 +11,7 @@ use std::{collections::HashMap, fs, path::PathBuf, sync::Arc};
 use reqwest::cookie::{CookieStore, Jar};
 use reqwest::Client;
 use serde_json::{json, Value};
-use tauri::{Manager, State};
+use tauri::{Manager, RunEvent, State, WindowEvent};
 use tauri_plugin_dialog::DialogExt;
 use tokio::sync::Mutex;
 
@@ -262,38 +263,187 @@ async fn export_csv(
 
 /* ============ 入口 ============ */
 
-fn main() {
-    let log_path = startup_log::default_log_path();
-    let _ = startup_log::reset_log(&log_path);
-    let _ = startup_log::write_log(&log_path, "INFO", "native main entered");
-    startup_log::install_panic_hook(log_path.clone());
-    let setup_log_path = log_path.clone();
-    let result = tauri::Builder::default()
-        .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_window_state::Builder::default().build())
-        .setup(move |app| {
-            app.manage(startup_log::StartupLog::new(setup_log_path.clone()));
-            let _ = startup_log::write_log(&setup_log_path, "INFO", "tauri setup entered");
-            let dir = app.path().app_config_dir()?;
-            let _ = startup_log::write_log(
-                &setup_log_path,
-                "INFO",
-                &format!("config directory resolved: {}", dir.display()),
-            );
-            fs::create_dir_all(&dir)?;
-            let path = dir.join("store.json");
-            let data = fs::read_to_string(&path)
-                .ok()
-                .and_then(|s| serde_json::from_str(&s).ok())
-                .unwrap_or_else(|| json!({}));
-            app.manage(Kv {
-                path,
-                data: Mutex::new(data),
-            });
-            app.manage(Http::default());
-            let _ = startup_log::write_log(&setup_log_path, "INFO", "tauri setup completed");
-            Ok(())
+fn log_diagnostic_lines(path: &std::path::Path, lines: Vec<String>) {
+    for line in lines {
+        let _ = startup_log::write_log(path, "INFO", &line);
+    }
+}
+
+/// 按需覆盖 wry 默认浏览器参数（覆盖时必须带上 wry 默认的 --disable-features 项）：
+/// - Win10：追加禁用 RendererCodeIntegrity——渲染进程代码完整性校验在 Win10 上
+///   与部分安全软件注入的 DLL 冲突，导致渲染进程反复崩溃、窗口白屏；
+/// - 连续 2 次启动未完成：追加禁用 GPU 与 GPU 合成——老显卡驱动/老系统上
+///   DirectComposition 初始化挂死是控制器创建回调不返回的高频原因。
+fn additional_browser_args(failed_startups: u32) -> Option<String> {
+    let mut features = "msWebOOUI,msPdfOOUI,msSmartScreenProtection".to_string();
+    #[cfg(windows)]
+    if windows_version::OsVersion::current().build < 22000 {
+        features.push_str(",RendererCodeIntegrity");
+    }
+    let mut args = format!("--disable-features={features}");
+    if failed_startups >= 2 {
+        args.push_str(" --disable-gpu --disable-gpu-compositing");
+    }
+    if args == "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection" {
+        // 与 wry 默认一致，无需覆盖
+        None
+    } else {
+        Some(args)
+    }
+}
+
+#[cfg(windows)]
+fn show_startup_error(message: &str) {
+    use windows::core::HSTRING;
+    use windows::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONERROR, MB_OK};
+    let text = HSTRING::from(format!(
+        "SQL Studio 启动失败：{message}\n\n详细日志：%TEMP%\\sql-studio-startup.log"
+    ));
+    let caption = HSTRING::from("SQL Studio");
+    unsafe {
+        MessageBoxW(None, &text, &caption, MB_OK | MB_ICONERROR);
+    }
+}
+
+#[cfg(not(windows))]
+fn show_startup_error(_message: &str) {}
+
+fn create_main_window(
+    app: &tauri::App,
+    log_path: &std::path::Path,
+    tracker: &startup_log::StartupTracker,
+    failed_startups: u32,
+) -> Result<(), Box<dyn std::error::Error>> {
+    tracker.mark(
+        startup_log::StartupPhase::CreatingMainWindow,
+        "creating main window",
+    );
+    let window_config = app
+        .config()
+        .app
+        .windows
+        .iter()
+        .find(|window| window.label == "main")
+        .cloned()
+        .ok_or("main window config missing")?;
+    let mut builder = tauri::WebviewWindowBuilder::from_config(app.handle(), &window_config)?;
+    if let Some(args) = additional_browser_args(failed_startups) {
+        let _ = startup_log::write_log(
+            log_path,
+            "INFO",
+            &format!("main window additional browser args: {args}"),
+        );
+        builder = builder.additional_browser_args(&args);
+    }
+    builder.build().map_err(|error| {
+        let _ = startup_log::write_log(
+            log_path,
+            "ERROR",
+            &format!("main window creation failed: {error}"),
+        );
+        error
+    })?;
+    tracker.mark(
+        startup_log::StartupPhase::MainWindowCreated,
+        "main window created",
+    );
+    Ok(())
+}
+
+fn configure_app_state(
+    app: &mut tauri::App,
+    log_path: &std::path::Path,
+    tracker: &startup_log::StartupTracker,
+) -> Result<(), Box<dyn std::error::Error>> {
+    tracker.mark(
+        startup_log::StartupPhase::SetupEntered,
+        "tauri app setup entered",
+    );
+    // 启动自愈：上次启动未完成时重置 WebView2 用户数据，再写入本次未完成标记
+    let local_dir = app.path().app_local_data_dir()?;
+    fs::create_dir_all(&local_dir)?;
+    let (recover_lines, failed_startups) = startup_diagnostics::recover_webview_data(&local_dir);
+    log_diagnostic_lines(log_path, recover_lines);
+    log_diagnostic_lines(
+        log_path,
+        startup_diagnostics::write_pending_marker(&local_dir, failed_startups),
+    );
+    app.manage(startup_log::StartupLog::new(
+        log_path.to_path_buf(),
+        tracker.clone(),
+        Some(startup_diagnostics::pending_marker_path(&local_dir)),
+    ));
+    let dir = app.path().app_config_dir()?;
+    let _ = startup_log::write_log(
+        log_path,
+        "INFO",
+        &format!("config directory resolved: {}", dir.display()),
+    );
+    log_diagnostic_lines(log_path, startup_diagnostics::window_state_lines(&dir));
+    fs::create_dir_all(&dir)?;
+    let path = dir.join("store.json");
+    let data = fs::read_to_string(&path)
+        .ok()
+        .and_then(|value| serde_json::from_str(&value).ok())
+        .unwrap_or_else(|| json!({}));
+    app.manage(Kv {
+        path,
+        data: Mutex::new(data),
+    });
+    app.manage(Http::default());
+    // 主窗口在此手动创建（tauri.conf.json 中 create=false），
+    // 以便精确记录 WebView2 创建卡点并按系统版本注入浏览器参数
+    create_main_window(app, log_path, tracker, failed_startups)?;
+    let windows = app.webview_windows().keys().cloned().collect::<Vec<_>>();
+    let _ = startup_log::write_log(log_path, "INFO", &format!("configured windows={windows:?}"));
+    tracker.mark(
+        startup_log::StartupPhase::SetupCompleted,
+        "tauri app setup completed",
+    );
+    Ok(())
+}
+
+fn build_application(
+    log_path: &std::path::Path,
+    tracker: &startup_log::StartupTracker,
+) -> tauri::App {
+    let _ = startup_log::write_log(log_path, "INFO", "creating tauri builder");
+    let diagnostics = startup_diagnostics::diagnostic_plugin(log_path.to_path_buf());
+    let _ = startup_log::write_log(log_path, "INFO", "diagnostic plugin constructed");
+    let dialog = tauri_plugin_dialog::init();
+    let _ = startup_log::write_log(log_path, "INFO", "dialog plugin constructed");
+    let window_state = tauri_plugin_window_state::Builder::default().build();
+    let _ = startup_log::write_log(log_path, "INFO", "window-state plugin constructed");
+    let setup_path = log_path.to_path_buf();
+    let setup_tracker = tracker.clone();
+    let window_path = log_path.to_path_buf();
+    let builder = tauri::Builder::default()
+        .plugin(diagnostics)
+        .plugin(dialog)
+        .plugin(window_state)
+        .on_window_event(move |window, event| match event {
+            WindowEvent::CloseRequested { .. }
+            | WindowEvent::Destroyed
+            | WindowEvent::Focused(_) => {
+                let message = format!("window event: label={} event={event:?}", window.label());
+                let _ = startup_log::write_log(&window_path, "INFO", &message);
+            }
+            _ => {}
         })
+        .setup(
+            move |app| match configure_app_state(app, &setup_path, &setup_tracker) {
+                Ok(()) => Ok(()),
+                Err(error) => {
+                    let _ = startup_log::write_log(
+                        &setup_path,
+                        "ERROR",
+                        &format!("app setup failed: {error}"),
+                    );
+                    show_startup_error(&error.to_string());
+                    Err(error)
+                }
+            },
+        )
         .invoke_handler(tauri::generate_handler![
             login,
             api_get,
@@ -306,10 +456,70 @@ fn main() {
             app_version,
             export_csv,
             startup_log::frontend_log
-        ])
-        .run(tauri::generate_context!());
-    if let Err(error) = result {
-        let _ = startup_log::write_log(&log_path, "ERROR", &format!("tauri run failed: {error}"));
-        panic!("SQL Studio 启动失败: {error}");
-    }
+        ]);
+    tracker.mark(
+        startup_log::StartupPhase::PluginsRegistered,
+        "all plugins registered",
+    );
+    let context = tauri::generate_context!();
+    tracker.mark(
+        startup_log::StartupPhase::ContextCreated,
+        "tauri context created",
+    );
+    tracker.mark(
+        startup_log::StartupPhase::BuildingApplication,
+        "tauri application build started",
+    );
+    builder.build(context).unwrap_or_else(|error| {
+        let _ = startup_log::write_log(log_path, "ERROR", &format!("tauri build failed: {error}"));
+        panic!("SQL Studio 构建应用失败: {error}");
+    })
+}
+
+fn main() {
+    let log_path = startup_log::default_log_path();
+    let _ = startup_log::reset_log(&log_path);
+    startup_log::install_panic_hook(log_path.clone());
+    let tracker = startup_log::StartupTracker::new(log_path.clone());
+    tracker.mark(
+        startup_log::StartupPhase::NativeEntered,
+        "native main entered",
+    );
+    tracker.start_watchdog();
+    // 必须在记录环境信息和创建 WebView2 之前应用固定版本运行时
+    log_diagnostic_lines(&log_path, startup_diagnostics::apply_fixed_runtime());
+    log_diagnostic_lines(&log_path, startup_diagnostics::environment_lines(&log_path));
+    tracker.mark(
+        startup_log::StartupPhase::EnvironmentLogged,
+        "startup environment diagnostics completed",
+    );
+    let app = build_application(&log_path, &tracker);
+    tracker.mark(
+        startup_log::StartupPhase::ApplicationBuilt,
+        "tauri application built",
+    );
+    let event_path = log_path.clone();
+    let event_tracker = tracker.clone();
+    tracker.mark(
+        startup_log::StartupPhase::EventLoopStarting,
+        "starting tauri event loop",
+    );
+    app.run(move |_handle, event| match event {
+        RunEvent::Ready => event_tracker.mark(
+            startup_log::StartupPhase::EventLoopReady,
+            "tauri event loop ready",
+        ),
+        RunEvent::ExitRequested { code, .. } => {
+            let _ = startup_log::write_log(
+                &event_path,
+                "INFO",
+                &format!("tauri exit requested: code={code:?}"),
+            );
+        }
+        RunEvent::Exit => event_tracker.mark(
+            startup_log::StartupPhase::Exiting,
+            "tauri event loop exited",
+        ),
+        _ => {}
+    });
 }

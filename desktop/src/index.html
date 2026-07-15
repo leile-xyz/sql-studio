@@ -189,7 +189,10 @@
     var envName = document.getElementById('envName');
     write('info', 'frontend watchdog: readyState=' + document.readyState
       + ', shell=' + Boolean(document.getElementById('topbar'))
-      + ', environmentResolved=' + Boolean(envName && envName.textContent !== '—'));
+      + ', environmentResolved=' + Boolean(envName && envName.textContent !== '—')
+      + ', visibility=' + document.visibilityState
+      + ', online=' + navigator.onLine
+      + ', userAgent=' + navigator.userAgent);
   }, 3000);
 })();
 </script>

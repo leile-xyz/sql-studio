@@ -16,6 +16,8 @@ import { loadTableData, prepareTableDataQuery } from './lib/table-data-loader.mj
 import { renderTabBarView, showAllConsolesMenu, showConsoleMenu, showTabContextMenu } from './lib/console-menu-view.mjs';
 import { ConsoleRenameController } from './lib/console-rename.mjs';
 import { closeWorkspaceTabs, consoleSessionState, createNewConsole, defaultConsoleTab, deleteWorkspaceConsole, restoreConsoleWorkspace } from './lib/console-workspace.mjs';
+const startupLog = (level, message) => window.__SQL_STUDIO_STARTUP_LOG__?.(level, message);
+startupLog('info', 'frontend app module evaluated');
 const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const attr = s => String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const state = {
@@ -54,21 +56,26 @@ const autocomplete = new SqlAutocomplete({
 });
 /* ================= 初始化 ================= */
 async function init() {
+  startupLog('info', 'frontend init entered');
   bindStatic();
   bindDelegation();
+  startupLog('info', 'frontend event bindings completed');
   try {
     state.envs = await store.getEnvs();
     state.activeEnvId = await store.getActiveEnvId();
   } catch (e) {
+    startupLog('error', 'frontend configuration read failed: ' + (e?.stack || e));
     renderTabs(); renderBody(); renderTree(); renderEnvUI();
     toast('读取环境配置失败：' + e.message, 'err');
     openEnvMgr(); return;
   }
   renderTabs();
   renderBody();
+  startupLog('info', 'frontend initial shell rendered');
   await applyEnv(state.activeEnvId);
-  if (!state.env) { openEnvMgr(); return; }
+  if (!state.env) { startupLog('info', 'frontend init completed without active environment'); openEnvMgr(); return; }
   await ensureConnected();
+  startupLog('info', 'frontend init completed with active environment');
 }
 function bindStatic() {
   consoleRename.bind();
@@ -988,6 +995,5 @@ function toast(msg, kind) {
   box.appendChild(el);
   setTimeout(() => el.remove(), 3600);
 }
-
 /* ================= 启动 ================= */
 init();

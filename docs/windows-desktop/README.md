@@ -34,9 +34,10 @@ desktop/src-tauri/target/release/sql-studio.exe
 
 - 配置、历史和控制台工作区：`%APPDATA%\com.fanxiaofan.sql-studio\store.json`；
 - 密码：Windows 凭据管理器，服务名 `sql-studio`，账号为环境 `id`；
+- WebView2 用户数据：`%LOCALAPPDATA%\com.fanxiaofan.sql-studio\EBWebView`（可安全删除，业务数据不在其中）；
 - 删除 exe 不会自动删除配置或凭据。
 
-启动白屏或关闭无响应时，查看 `%TEMP%\sql-studio-startup.log`。程序每次启动会重新生成该文件，记录 Rust 初始化和前端启动错误；详细排查步骤见 [常见问题](../FAQ.md)。
+启动白屏或关闭无响应时，复现后等待至少 15 秒，再查看 `%TEMP%\sql-studio-startup.log`。程序每次启动会重新生成该文件，记录 Windows/WebView2 环境、Tauri 插件、窗口与页面加载、前端初始化和卡死看门狗阶段；看门狗从 15 秒起还会记录 WebView2 子进程与崩溃报告。主窗口在 setup 阶段手动创建以精确定位 WebView2 卡点；启动自愈逐级降级——上次启动未完成时自动重置 WebView2 用户数据（改名为 `EBWebView.broken`），连续失败两次起追加 `--disable-gpu --disable-gpu-compositing`；Windows 10 上始终追加 `--disable-features=RendererCodeIntegrity` 规避安全软件注入导致的渲染进程崩溃。详细判读方式见 [常见问题](../FAQ.md)。
 
 完整清理方式见 [配置与本地数据](../configuration.md)。
 
