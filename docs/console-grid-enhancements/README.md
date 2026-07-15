@@ -41,4 +41,4 @@ SQL 自动联想的完整规则见 [SQL 自动联想增强](../sql-autocomplete-
 ## 验证
 
 - 自动化验证与手工验证应覆盖空表、总数恰好为页大小整数倍、筛选后总数变化、末页边界和 PostgreSQL schema COUNT。
-- `desktop/test/e2e.js` 提供 MySQL 表数据/结构/DDL、PostgreSQL schema 表数据/结构、排序筛选相关基础链路。
+- `test/e2e.js` 提供 MySQL 表数据/结构/DDL、PostgreSQL schema 表数据/结构、排序筛选相关基础链路。

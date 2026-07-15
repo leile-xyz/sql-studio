@@ -8,7 +8,6 @@
 - WebView2 Runtime。
 
 ```powershell
-Set-Location desktop
 npm ci
 npm test
 npm run dev
@@ -18,12 +17,12 @@ npm run dev
 
 | 变更类型 | 主要位置 |
 |----------|----------|
-| 页面状态和通用 UI 编排 | `desktop/src/app.js` |
-| SQL 编辑、自动联想、表/网格 UI | `desktop/src/lib/` 对应职责模块 |
-| 前端到宿主的接口封装 | `desktop/src/lib/api.js` |
-| 本地配置 | `desktop/src/lib/store.js` |
-| 网络、Cookie、凭据和文件对话框 | `desktop/src-tauri/src/main.rs` |
-| 单元、项目和 E2E 测试 | `desktop/test/` |
+| 页面状态和通用 UI 编排 | `src/app.js` |
+| SQL 编辑、自动联想、表/网格 UI | `src/lib/` 对应职责模块 |
+| 前端到宿主的接口封装 | `src/lib/api.js` |
+| 本地配置 | `src/lib/store.js` |
+| 网络、Cookie、凭据和文件对话框 | `src-tauri/src/main.rs` |
+| 单元、项目和 E2E 测试 | `test/` |
 
 模块清单和请求链路见 [架构说明](architecture.md)。业务规则优先写成可独立测试的模块；系统能力保留在 Rust 宿主，通过明确的 Tauri command 边界调用。
 
@@ -46,4 +45,4 @@ npm run dev
 
 ## 敏感数据
 
-只使用 `desktop/src/default-envs.json` 中的 example.com、`desktop/test/mock-archery.js` 或其他虚构数据。公开前还应检查 Git 历史的作者邮箱、旧域名和大文件；详见 [发布指南](releasing.md)。
+只使用 `src/default-envs.json` 中的 example.com、`test/mock-archery.js` 或其他虚构数据。公开前还应检查 Git 历史的作者邮箱、旧域名和大文件；详见 [发布指南](releasing.md)。

@@ -11,7 +11,6 @@
 ## 本地开发
 
 ```powershell
-Set-Location desktop
 npm ci
 npm test
 npm run dev
@@ -21,12 +20,12 @@ npm run dev
 
 ## 代码结构
 
-- `desktop/src/`：WebView2 中运行的前端页面和业务模块。
-- `desktop/src-tauri/`：Tauri 2 配置、Rust 网络层、会话、凭据和文件对话框。
-- `desktop/test/`：单元测试、项目检查、mock Archery 和 Windows E2E。
+- `src/`：WebView2 中运行的前端页面和业务模块。
+- `src-tauri/`：Tauri 2 配置、Rust 网络层、会话、凭据和文件对话框。
+- `test/`：单元测试、项目检查、mock Archery 和 Windows E2E。
 - `docs/`：用户、架构、开发和功能文档。
 
-前端业务逻辑应放在职责明确的 `desktop/src/lib/` 模块中，宿主能力通过 Tauri command 注入，不要在业务模块中复制 Rust 宿主逻辑。
+前端业务逻辑应放在职责明确的 `src/lib/` 模块中，宿主能力通过 Tauri command 注入，不要在业务模块中复制 Rust 宿主逻辑。
 
 ## 工程约定
 
@@ -42,7 +41,6 @@ npm run dev
 提交前至少执行：
 
 ```powershell
-Set-Location desktop
 npm test
 cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
 cargo check --locked --manifest-path src-tauri/Cargo.toml
