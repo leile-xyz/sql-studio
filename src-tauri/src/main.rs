@@ -3,12 +3,14 @@
 // Windows 凭据管理器（DPAPI）存取密码、CSV 原生另存为。
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod background;
+
 use std::{collections::HashMap, fs, path::PathBuf, sync::Arc};
 
 use reqwest::cookie::{CookieStore, Jar};
 use reqwest::Client;
 use serde_json::{json, Value};
-use tauri::{Manager, State};
+use tauri::{Manager, State, WindowEvent};
 use tauri_plugin_dialog::DialogExt;
 use tokio::sync::Mutex;
 
@@ -264,6 +266,15 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_window_state::Builder::default().build())
+        .on_window_event(|window, event| {
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                if window.label() != "main" {
+                    return;
+                }
+                api.prevent_close();
+                background::hide_main_window(window).expect("隐藏主窗口到系统托盘失败");
+            }
+        })
         .setup(|app| {
             let dir = app.path().app_config_dir()?;
             fs::create_dir_all(&dir)?;
@@ -277,6 +288,7 @@ fn main() {
                 data: Mutex::new(data),
             });
             app.manage(Http::default());
+            background::setup_tray(app)?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
