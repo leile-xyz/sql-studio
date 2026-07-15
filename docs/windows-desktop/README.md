@@ -1,6 +1,6 @@
 # Windows 桌面端
 
-SQL Studio Windows 版使用 Tauri 2（Rust + WebView2）封装共享前端，网络、Cookie、凭据和文件对话框由 Rust 宿主提供。
+SQL Studio Windows 版使用 Tauri 2（Rust + WebView2），网络、Cookie、凭据和文件对话框由 Rust 宿主提供。
 
 ## 功能差异
 
@@ -52,7 +52,7 @@ desktop/src-tauri/target/release/sql-studio.exe
 
 ## 测试
 
-- `npm test`：单元测试、SQL/DDL 解析、凭据加密和双端共享模块一致性；
+- `npm test`：单元测试、SQL/DDL 解析、会话持久化和桌面端项目检查；
 - `cargo fmt` / `cargo check`：Rust 格式和类型检查；
 - Windows E2E：mock Archery + WebView2 CDP，覆盖登录、MySQL/PostgreSQL、结构/DDL、多 SQL 和凭据边界。
 

@@ -10,7 +10,7 @@ SQL Studio 自有代码按 [MIT License](../LICENSE) 分发。依赖项、开发
 - [Tokio](https://tokio.rs/)；
 - [keyring-rs](https://github.com/hwchen/keyring-rs)；
 - [Playwright](https://playwright.dev/)；
-- Chrome/Edge Manifest V3 与 WebView2 平台 API。
+- Microsoft WebView2 平台 API。
 
 精确版本由 `desktop/package-lock.json` 与 `desktop/src-tauri/Cargo.lock` 固定。分发编译后的桌面程序前，应根据锁文件和上游包元数据生成完整的第三方许可证清单，并随 Release Assets 一起提供。
 

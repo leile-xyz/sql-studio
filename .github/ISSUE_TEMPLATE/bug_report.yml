@@ -6,16 +6,6 @@ body:
     attributes:
       value: |
         感谢反馈。请勿提交真实账号、密码、Cookie、Session、Token、内部域名、SQL 内容或查询结果；安全漏洞请按 SECURITY.md 私密报告。
-  - type: dropdown
-    id: client
-    attributes:
-      label: 客户端
-      options:
-        - Chrome/Edge 浏览器扩展
-        - Windows 桌面端
-        - 两者都有
-    validations:
-      required: true
   - type: input
     id: version
     attributes:
@@ -27,7 +17,7 @@ body:
     id: environment
     attributes:
       label: 运行环境
-      placeholder: 例如 Windows 11、Edge 150、Archery 1.x
+      placeholder: 例如 Windows 11、WebView2 150、Archery 1.x
     validations:
       required: true
   - type: dropdown

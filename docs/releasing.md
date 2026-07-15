@@ -4,12 +4,11 @@
 
 发布前同步以下版本：
 
-- `extension/manifest.json`；
 - `desktop/package.json` 与 `package-lock.json`；
 - `desktop/src-tauri/Cargo.toml`；
 - `desktop/src-tauri/tauri.conf.json`。
 
-关于弹窗的版本从扩展 manifest 或 Tauri 包信息动态读取，不维护独立版本常量。
+关于弹窗的版本从 Tauri 包信息动态读取，不维护独立版本常量。
 
 ## 发布前检查
 
@@ -18,7 +17,7 @@
 3. 确认生产构建未合并 `test/tauri.e2e.conf.json` 的 CDP 参数。
 4. 检查仓库中没有 exe、安装包、日志、真实环境配置、凭据或内部截图。
 5. 检查 Git 历史的作者姓名/邮箱、旧域名和敏感文件；首次公开前如需重写历史，应在建立公共协作前完成并通知所有已有协作者。
-6. 打开双端关于弹窗，确认版本、客户端类型和许可证正确。
+6. 打开关于弹窗，确认版本、客户端类型和许可证正确。
 7. 生成或更新随二进制分发的第三方许可证清单。
 
 ## 构建产物
