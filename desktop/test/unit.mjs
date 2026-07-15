@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
 import { buildCsv } from '../src/lib/csv.mjs';
 import {
   buildConsoleCountSql,
@@ -11,7 +10,6 @@ import {
 import { parseTableDescription } from '../src/lib/ddl.js';
 import { collectPagedRows } from '../src/lib/paged-export.mjs';
 import { renderTableView, resolveTableSubview } from '../src/lib/table-view.mjs';
-import { decryptText, encryptText } from '../../extension/lib/crypto.js';
 import {
   detectSqlCompletionContext,
   extractReferencedTables,
@@ -288,44 +286,6 @@ function testMultiStatementFormatting() {
 
 function testCsv() {
   assert.equal(buildCsv([{ name: 'name' }], [['a,b']]), '\uFEFFname\r\n"a,b"');
-}
-
-async function testExtensionCredentialEncryption() {
-  const plaintext = 'sql-studio-test-password';
-  const ciphertext = await encryptText(plaintext);
-  assert.notEqual(ciphertext, plaintext);
-  assert.equal(await decryptText(ciphertext), plaintext);
-  await assert.rejects(() => decryptText('plaintext'), /保存的密码无法解密/);
-}
-
-async function testDesktopExtensionParity() {
-  const pairs = [
-    'sql-editor.mjs',
-    'about-dialog.mjs',
-    'db-context.mjs',
-    'console-session.mjs',
-    'console-rename.mjs',
-    'console-workspace.mjs',
-    'console-menu-view.mjs',
-    'csv-export-actions.mjs',
-    'console-execution.mjs',
-    'console-query.mjs',
-    'console-result-view.mjs',
-    'export-service.mjs',
-    'paged-export.mjs',
-    'app-events.mjs',
-    'resource-tree-view.mjs',
-    'table-view.mjs',
-    'grid.mjs',
-    'icons.mjs',
-    'csv.mjs',
-    'ddl.js',
-  ];
-  for (const file of pairs) {
-    const desktop = await readFile(new URL('../src/lib/' + file, import.meta.url), 'utf8');
-    const extension = await readFile(new URL('../../extension/lib/' + file, import.meta.url), 'utf8');
-    assert.equal(extension, desktop, file + ' should stay identical across desktop and extension');
-  }
 }
 
 function testSplitSql() {
@@ -989,9 +949,7 @@ testContextAwareAutocompletePriority();
 testConsoleQueryPagination();
 testCsv();
 await testPagedRowCollection();
-await testExtensionCredentialEncryption();
 await testDesktopApiSchemaRequests();
-await testDesktopExtensionParity();
 await import('./console-session.mjs');
 await import('./pagination.mjs');
-console.log('PASS  unit: SQL splitting, multi-statement formatting, autocomplete, table extraction, session persistence, CSV and dual-end parity');
+console.log('PASS  unit: SQL splitting, multi-statement formatting, autocomplete, table extraction, session persistence and CSV');

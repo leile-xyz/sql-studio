@@ -21,8 +21,8 @@ body:
       label: 影响范围
       multiple: true
       options:
-        - 浏览器扩展
-        - Windows 桌面端
+        - 桌面端界面与交互
+        - Windows 宿主能力
         - MySQL
         - PostgreSQL
         - 文档或开发流程

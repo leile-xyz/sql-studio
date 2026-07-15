@@ -42,71 +42,59 @@ async function testRequiredProjectFiles() {
 async function testVersionAndLicenseMetadata() {
   const packageJson = JSON.parse(await readUtf8('desktop/package.json'));
   const packageLock = JSON.parse(await readUtf8('desktop/package-lock.json'));
-  const manifest = JSON.parse(await readUtf8('extension/manifest.json'));
   const tauriConfig = JSON.parse(await readUtf8('desktop/src-tauri/tauri.conf.json'));
   const cargoToml = await readUtf8('desktop/src-tauri/Cargo.toml');
   const cargoVersion = cargoToml.match(/^version\s*=\s*"([^"]+)"/m)?.[1];
   const cargoLicense = cargoToml.match(/^license\s*=\s*"([^"]+)"/m)?.[1];
   const cargoRepository = cargoToml.match(/^repository\s*=\s*"([^"]+)"/m)?.[1];
-  const versions = [packageJson.version, packageLock.version, manifest.version, tauriConfig.version, cargoVersion];
-  assert.equal(new Set(versions).size, 1, 'package, extension, Tauri and Cargo versions must match');
+  const versions = [packageJson.version, packageLock.version, tauriConfig.version, cargoVersion];
+  assert.equal(new Set(versions).size, 1, 'package, Tauri and Cargo versions must match');
   assert.equal(packageJson.license, 'MIT');
   assert.equal(cargoLicense, 'MIT');
   assert.equal(packageJson.homepage, 'https://github.com/leile-xyz/sql-studio');
   assert.equal(cargoRepository, packageJson.homepage);
-  assert.equal(manifest.homepage_url, packageJson.homepage);
 }
 
 async function testAboutDialogMetadata() {
-  const files = [
-    ['desktop/src/index.html', 'Windows 桌面端 · Tauri 2'],
-    ['extension/app.html', 'Chrome/Edge 扩展 · Manifest V3'],
-  ];
-  for (const [relativePath, clientLabel] of files) {
-    const html = await readUtf8(relativePath);
-    for (const id of ['btnAbout', 'aboutMask', 'aboutTitle', 'aboutVersion', 'aboutClose']) {
-      assert.ok(html.includes(`id="${id}"`), relativePath + ' missing ' + id);
-    }
-    assert.ok(html.includes('role="dialog"') && html.includes('aria-modal="true"'));
-    assert.ok(html.includes(clientLabel), relativePath + ' missing client label');
-    assert.ok(html.includes('<span class="k">作者</span><span class="v">fanzhibiao</span>'), relativePath + ' missing author');
-    assert.ok(html.includes('MIT License'), relativePath + ' missing license');
-    assert.ok(!html.includes('项目定位'), relativePath + ' includes removed project positioning');
-    assert.ok(!html.includes('<span class="k">隐私</span>'), relativePath + ' includes removed privacy entry');
-    assert.ok(!html.includes('GitHub 仓库'), relativePath + ' includes removed repository entry');
+  const relativePath = 'desktop/src/index.html';
+  const html = await readUtf8(relativePath);
+  for (const id of ['btnAbout', 'aboutMask', 'aboutTitle', 'aboutVersion', 'aboutClose']) {
+    assert.ok(html.includes(`id="${id}"`), relativePath + ' missing ' + id);
   }
+  assert.ok(html.includes('role="dialog"') && html.includes('aria-modal="true"'));
+  assert.ok(html.includes('Windows 桌面端 · Tauri 2'), relativePath + ' missing client label');
+  assert.ok(html.includes('<span class="k">作者</span><span class="v">fanzhibiao</span>'), relativePath + ' missing author');
+  assert.ok(html.includes('MIT License'), relativePath + ' missing license');
+  assert.ok(!html.includes('项目定位'), relativePath + ' includes removed project positioning');
+  assert.ok(!html.includes('<span class="k">隐私</span>'), relativePath + ' includes removed privacy entry');
+  assert.ok(!html.includes('GitHub 仓库'), relativePath + ' includes removed repository entry');
 }
 
 async function testAppEntrypointStructure() {
-  for (const relativePath of ['desktop/src/app.js', 'extension/app.js']) {
-    const source = await readUtf8(relativePath);
-    assert.ok(
-      source.includes("renderConsole(tab, $('tabbody'));\n}\nfunction scheduleConsoleSession(tab)"),
-      relativePath + ' missing beautify closing brace',
-    );
-    assert.ok(source.trimEnd().endsWith('init();'), relativePath + ' missing init call');
-  }
+  const relativePath = 'desktop/src/app.js';
+  const source = await readUtf8(relativePath);
+  assert.ok(
+    source.includes("renderConsole(tab, $('tabbody'));\n}\nfunction scheduleConsoleSession(tab)"),
+    relativePath + ' missing beautify closing brace',
+  );
+  assert.ok(source.trimEnd().endsWith('init();'), relativePath + ' missing init call');
 }
 
 async function testConsoleLauncherStructure() {
-  const files = ['desktop/src/index.html', 'extension/app.html'];
-  for (const relativePath of files) {
-    const html = await readUtf8(relativePath);
-    assert.ok(html.includes('id="consoleMenu"'));
-    assert.ok(html.includes('id="consoleAllMenu"'));
-    assert.ok(html.includes('id="renameConsoleMask"'));
-    assert.ok(html.includes('id="renameConsoleInput"'));
-    assert.ok(html.includes('id="renameConsoleSubmit"'));
-    assert.ok(html.includes('id="btnSidebarCollapse"'));
-    assert.ok(html.includes('id="btnSidebarExpand"'));
-  }
-  for (const relativePath of ['desktop/src/app.css', 'extension/app.css']) {
-    const css = await readUtf8(relativePath);
-    assert.ok(css.includes('.console-launcher-wrap'));
-    assert.ok(css.includes('.tabs-scroll'));
-    assert.ok(css.includes('#main.sidebar-collapsed #sidebar'));
-    assert.ok(css.includes('#main.sidebar-collapsed #sidebarRail'));
-  }
+  const html = await readUtf8('desktop/src/index.html');
+  assert.ok(html.includes('id="consoleMenu"'));
+  assert.ok(html.includes('id="consoleAllMenu"'));
+  assert.ok(html.includes('id="renameConsoleMask"'));
+  assert.ok(html.includes('id="renameConsoleInput"'));
+  assert.ok(html.includes('id="renameConsoleSubmit"'));
+  assert.ok(html.includes('id="btnSidebarCollapse"'));
+  assert.ok(html.includes('id="btnSidebarExpand"'));
+
+  const css = await readUtf8('desktop/src/app.css');
+  assert.ok(css.includes('.console-launcher-wrap'));
+  assert.ok(css.includes('.tabs-scroll'));
+  assert.ok(css.includes('#main.sidebar-collapsed #sidebar'));
+  assert.ok(css.includes('#main.sidebar-collapsed #sidebarRail'));
 }
 
 function markdownTargets(source) {

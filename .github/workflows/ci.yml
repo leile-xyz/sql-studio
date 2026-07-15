@@ -41,7 +41,7 @@ jobs:
       - name: Check JavaScript syntax
         shell: pwsh
         run: |
-          $files = Get-ChildItem desktop/src, extension -Recurse -File | Where-Object { $_.Extension -in '.js', '.mjs' }
+          $files = Get-ChildItem desktop/src -Recurse -File | Where-Object { $_.Extension -in '.js', '.mjs' }
           foreach ($file in $files) {
             node --check $file.FullName
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

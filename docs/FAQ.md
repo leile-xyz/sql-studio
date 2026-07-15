@@ -1,13 +1,5 @@
 # 常见问题
 
-## 为什么扩展需要访问所有 HTTP/HTTPS 站点？
-
-用户可以配置任意 Archery 地址，Manifest V3 需要预先声明 host 权限。扩展只会请求环境管理中配置的地址。
-
-## 为什么需要 Cookie 权限？
-
-Archery 使用 Django Cookie 会话。扩展需要读取 CSRF Cookie 并携带 Session Cookie 才能登录和查询。
-
 ## 地址可以填写路径吗？
 
 不可以。`base` 只填写域名或 `IP:端口`，协议通过 `scheme` 选择。
@@ -18,11 +10,7 @@ Archery 使用 Django Cookie 会话。扩展需要读取 CSRF Cookie 并携带 S
 
 ## 出现 403 CSRF 怎么办？
 
-确认环境协议、域名和端口正确，扩展已重新加载动态请求规则，服务端 Cookie 域与访问地址一致。桌面端应检查服务端 CSRF 配置和系统时间。
-
-## 浏览器扩展和桌面端配置为什么不互通？
-
-它们使用不同的本地存储和凭据系统，目前没有配置同步协议。
+确认环境协议、域名和端口正确，服务端 Cookie 域与访问地址一致，并检查 Archery 的 CSRF 配置和 Windows 系统时间。Rust 宿主会先获取 CSRF Cookie，再使用同一环境的 Cookie Jar 提交登录请求。
 
 ## Windows 提示缺少 WebView2 怎么办？
 
@@ -38,7 +26,7 @@ Archery 使用 Django Cookie 会话。扩展需要读取 CSRF Cookie 并携带 S
 
 ## 自签 HTTPS 能连接吗？
 
-桌面端当前接受无效/自签证书，但这会降低 TLS 安全性，仅适合受控内网。浏览器扩展仍遵循浏览器证书校验。
+当前客户端接受无效/自签证书，但这会降低 TLS 安全性，仅适合受控内网。
 
 ## PostgreSQL 为什么没有 DDL 页签？
 

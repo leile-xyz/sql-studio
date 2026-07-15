@@ -1,12 +1,11 @@
 # 贡献指南
 
-感谢你为 SQL Studio 提交问题、文档或代码。项目同时维护浏览器扩展和 Windows 桌面端，请先阅读本指南，避免双端行为分叉。
+感谢你为 SQL Studio Windows 桌面端提交问题、文档或代码。`main` 分支只维护 Tauri 桌面端；浏览器扩展实现位于 `extension` 分支。
 
 ## 开始之前
 
 - 使用 Node.js 20 或更高版本。
 - 桌面端开发需要 Rust stable（MSVC 工具链）、Microsoft C++ Build Tools 和 WebView2 Runtime。
-- 浏览器扩展调试需要 Chrome 或 Edge，并开启扩展开发者模式。
 - 不要在 Issue、PR、截图、日志或测试数据中提交真实域名、账号、密码、Cookie、CSRF Token、Session、SQL 查询结果或业务表名。
 
 ## 本地开发
@@ -18,22 +17,16 @@ npm test
 npm run dev
 ```
 
-浏览器扩展无需构建：在 `chrome://extensions` 或 `edge://extensions` 中加载仓库的 `extension/` 目录即可。
-
 完整开发、测试和 E2E 流程见 [开发指南](docs/development.md) 与 [测试指南](docs/testing.md)。
 
 ## 代码结构
 
-- `extension/`：Manifest V3 扩展及浏览器宿主实现。
-- `desktop/`：Tauri 2 桌面端、Rust 宿主及测试。
+- `desktop/src/`：WebView2 中运行的前端页面和业务模块。
+- `desktop/src-tauri/`：Tauri 2 配置、Rust 网络层、会话、凭据和文件对话框。
+- `desktop/test/`：单元测试、项目检查、mock Archery 和 Windows E2E。
 - `docs/`：用户、架构、开发和功能文档。
-- `desktop/src/lib/` 与 `extension/lib/`：大部分 UI 业务模块要求保持逐字节一致。
 
-以下共享模块由单元测试强制校验双端一致性：
-
-`sql-editor.mjs`、`db-context.mjs`、`console-draft.mjs`、`app-events.mjs`、`resource-tree-view.mjs`、`table-view.mjs`、`grid.mjs`、`icons.mjs`、`csv.mjs`、`ddl.js`。
-
-修改这些文件时必须同步修改两个目录，不要通过运行时 fallback 掩盖双端差异。
+前端业务逻辑应放在职责明确的 `desktop/src/lib/` 模块中，宿主能力通过 Tauri command 注入，不要在业务模块中复制 Rust 宿主逻辑。
 
 ## 工程约定
 
@@ -63,6 +56,6 @@ cargo check --locked --manifest-path src-tauri/Cargo.toml
 2. 保持提交聚焦，避免混入无关格式化或生成产物。
 3. 在 PR 中说明问题、方案、影响范围和验证结果。
 4. UI 变化提供使用 mock/虚构数据生成的截图。
-5. 确认双端共享模块、文档、版本和变更记录已同步。
+5. 确认相关代码、测试、文档、版本和变更记录已同步。
 
 提交贡献即表示你有权提交相关内容，并同意贡献内容按仓库的 [MIT License](LICENSE) 分发。

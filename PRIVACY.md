@@ -11,18 +11,12 @@ SQL Studio 是连接用户自有 Archery 服务的本地客户端。项目本身
 
 这些数据只在客户端本地处理，网络请求只发送到用户在环境管理中配置的地址。
 
-## 浏览器扩展
-
-- 环境、历史、草稿和凭据数据存于 `chrome.storage.local`。
-- 保存密码使用由扩展 ID 派生密钥的 AES-GCM 混淆，不等同于操作系统安全存储。
-- 扩展需要 `http://*/*`、`https://*/*`、`cookies` 和相关请求权限，以支持任意用户配置的 Archery 地址及 Django 登录会话。
-- 卸载扩展或在浏览器扩展管理页清除扩展数据，可以删除本地配置。
-
-## Windows 桌面端
+## Windows 本地数据
 
 - 非敏感配置位于 `%APPDATA%\com.fanxiaofan.sql-studio\store.json`。
 - 保存密码位于 Windows 凭据管理器，受当前 Windows 用户账户保护。
-- 卸载或删除 exe 不会自动清除上述配置与凭据；完整清理步骤见 [配置说明](docs/configuration.md)。
+- 网络会话由 Rust 宿主按环境保存在内存 Cookie Jar 中，程序退出后不持久化。
+- 卸载或删除 exe 不会自动清除配置与凭据；完整清理步骤见 [配置说明](docs/configuration.md)。
 
 ## 日志与问题反馈
 
