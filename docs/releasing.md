@@ -4,9 +4,9 @@
 
 发布前同步以下版本：
 
-- `desktop/package.json` 与 `package-lock.json`；
-- `desktop/src-tauri/Cargo.toml`；
-- `desktop/src-tauri/tauri.conf.json`。
+- `package.json` 与 `package-lock.json`；
+- `src-tauri/Cargo.toml`；
+- `src-tauri/tauri.conf.json`。
 
 关于弹窗的版本从 Tauri 包信息动态读取，不维护独立版本常量。
 
@@ -23,7 +23,6 @@
 ## 构建产物
 
 ```powershell
-Set-Location desktop
 npm ci
 npm run build
 ```
@@ -31,7 +30,7 @@ npm run build
 当前产物为未签名便携 exe：
 
 ```text
-desktop/src-tauri/target/release/sql-studio.exe
+src-tauri/target/release/sql-studio.exe
 ```
 
 不要把二进制直接提交到 Git；应使用代码托管平台的 Release Assets。发布页应包含版本、提交 SHA、校验值、变更摘要、支持的 Windows 版本和未签名说明。

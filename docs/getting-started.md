@@ -17,7 +17,6 @@ PostgreSQL schema 浏览依赖实例数据中的 `db_type` 为 `pgsql`、`postgr
 ## 构建
 
 ```powershell
-Set-Location desktop
 npm ci
 npm test
 npm run build
@@ -26,7 +25,7 @@ npm run build
 生成的便携程序位于：
 
 ```text
-desktop/src-tauri/target/release/sql-studio.exe
+src-tauri/target/release/sql-studio.exe
 ```
 
 程序未配置代码签名，首次运行可能触发 SmartScreen。请只运行自己构建或来自可信发布渠道的产物。
@@ -59,7 +58,7 @@ desktop/src-tauri/target/release/sql-studio.exe
 
 ## 默认环境
 
-`desktop/src/default-envs.json` 是首次初始化使用的示例。它不会覆盖已经存在的本地配置，也不应写入真实内网地址或账号信息。
+`src/default-envs.json` 是首次初始化使用的示例。它不会覆盖已经存在的本地配置，也不应写入真实内网地址或账号信息。
 
 详细数据位置和清理方式见 [配置与本地数据](configuration.md)。
 

@@ -3,7 +3,7 @@ import { readFile, readdir, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const REPO_ROOT = fileURLToPath(new URL('../..', import.meta.url));
+const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url));
 const SKIP_DIRECTORIES = new Set(['.git', 'node_modules', 'target']);
 const TEXT_EXTENSIONS = new Set([
   '.css', '.html', '.js', '.json', '.md', '.mjs', '.ps1', '.rs', '.toml', '.xml', '.yml', '.yaml',
@@ -40,10 +40,10 @@ async function testRequiredProjectFiles() {
 }
 
 async function testVersionAndLicenseMetadata() {
-  const packageJson = JSON.parse(await readUtf8('desktop/package.json'));
-  const packageLock = JSON.parse(await readUtf8('desktop/package-lock.json'));
-  const tauriConfig = JSON.parse(await readUtf8('desktop/src-tauri/tauri.conf.json'));
-  const cargoToml = await readUtf8('desktop/src-tauri/Cargo.toml');
+  const packageJson = JSON.parse(await readUtf8('package.json'));
+  const packageLock = JSON.parse(await readUtf8('package-lock.json'));
+  const tauriConfig = JSON.parse(await readUtf8('src-tauri/tauri.conf.json'));
+  const cargoToml = await readUtf8('src-tauri/Cargo.toml');
   const cargoVersion = cargoToml.match(/^version\s*=\s*"([^"]+)"/m)?.[1];
   const cargoLicense = cargoToml.match(/^license\s*=\s*"([^"]+)"/m)?.[1];
   const cargoRepository = cargoToml.match(/^repository\s*=\s*"([^"]+)"/m)?.[1];
@@ -56,7 +56,7 @@ async function testVersionAndLicenseMetadata() {
 }
 
 async function testAboutDialogMetadata() {
-  const relativePath = 'desktop/src/index.html';
+  const relativePath = 'src/index.html';
   const html = await readUtf8(relativePath);
   for (const id of ['btnAbout', 'aboutMask', 'aboutTitle', 'aboutVersion', 'aboutClose']) {
     assert.ok(html.includes(`id="${id}"`), relativePath + ' missing ' + id);
@@ -71,7 +71,7 @@ async function testAboutDialogMetadata() {
 }
 
 async function testAppEntrypointStructure() {
-  const relativePath = 'desktop/src/app.js';
+  const relativePath = 'src/app.js';
   const source = await readUtf8(relativePath);
   assert.ok(
     source.includes("renderConsole(tab, $('tabbody'));\n}\nfunction scheduleConsoleSession(tab)"),
@@ -81,7 +81,7 @@ async function testAppEntrypointStructure() {
 }
 
 async function testConsoleLauncherStructure() {
-  const html = await readUtf8('desktop/src/index.html');
+  const html = await readUtf8('src/index.html');
   assert.ok(html.includes('id="consoleMenu"'));
   assert.ok(html.includes('id="consoleAllMenu"'));
   assert.ok(html.includes('id="renameConsoleMask"'));
@@ -90,7 +90,7 @@ async function testConsoleLauncherStructure() {
   assert.ok(html.includes('id="btnSidebarCollapse"'));
   assert.ok(html.includes('id="btnSidebarExpand"'));
 
-  const css = await readUtf8('desktop/src/app.css');
+  const css = await readUtf8('src/app.css');
   assert.ok(css.includes('.console-launcher-wrap'));
   assert.ok(css.includes('.tabs-scroll'));
   assert.ok(css.includes('#main.sidebar-collapsed #sidebar'));

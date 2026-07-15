@@ -20,7 +20,7 @@ SQL Studio `main` 分支是 Windows 桌面应用，不增加自有服务端。We
 
 ## 前端模块
 
-`desktop/src/app.js` 负责页面级状态和交互编排，`desktop/src/lib/` 按职责拆分可测试的业务模块：
+`src/app.js` 负责页面级状态和交互编排，`src/lib/` 按职责拆分可测试的业务模块：
 
 - `sql-editor.mjs`：SQL 拆分、美化、语句定位和自动联想；
 - `about-dialog.mjs`：关于弹窗的版本读取与关闭交互；
@@ -48,7 +48,7 @@ SQL Studio `main` 分支是 Windows 桌面应用，不增加自有服务端。We
 | 密码 | Windows 凭据管理器 |
 | CSV | 原生另存为对话框 |
 
-前端通过 `desktop/src/lib/api.js` 调用 Tauri command。Rust 错误以 rejected invoke 显式返回，前端不生成模拟结果或默认成功状态。
+前端通过 `src/lib/api.js` 调用 Tauri command。Rust 错误以 rejected invoke 显式返回，前端不生成模拟结果或默认成功状态。
 
 ## PostgreSQL schema
 
