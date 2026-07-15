@@ -13,7 +13,7 @@ publish = false
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-window-state = "2"
 reqwest = { version = "0.12", features = ["cookies", "json"] }

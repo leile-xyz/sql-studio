@@ -80,6 +80,19 @@ async function testAppEntrypointStructure() {
   assert.ok(source.trimEnd().endsWith('init();'), relativePath + ' missing init call');
 }
 
+async function testDesktopBackgroundMode() {
+  const cargoToml = await readUtf8('src-tauri/Cargo.toml');
+  const mainSource = await readUtf8('src-tauri/src/main.rs');
+  const backgroundSource = await readUtf8('src-tauri/src/background.rs');
+  assert.match(cargoToml, /tauri\s*=\s*\{[^\n]*"tray-icon"/);
+  assert.ok(mainSource.includes('background::setup_tray(app, log_path)?;'));
+  assert.ok(mainSource.includes('api.prevent_close();'));
+  assert.ok(mainSource.includes('background::hide_main_window(window, &window_path);'));
+  assert.ok(backgroundSource.includes('TrayIconBuilder::with_id(TRAY_ICON_ID)'));
+  assert.ok(backgroundSource.includes('.show_menu_on_left_click(false)'));
+  assert.ok(backgroundSource.includes('handle.exit(0);'));
+}
+
 async function testConsoleLauncherStructure() {
   const html = await readUtf8('src/index.html');
   assert.ok(html.includes('id="consoleMenu"'));
@@ -137,6 +150,7 @@ await testRequiredProjectFiles();
 await testVersionAndLicenseMetadata();
 await testAboutDialogMetadata();
 await testAppEntrypointStructure();
+await testDesktopBackgroundMode();
 await testConsoleLauncherStructure();
 await testMarkdownLinks(files);
 await testEncodingAndSourceSize(files);

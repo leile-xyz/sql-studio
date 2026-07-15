@@ -3,6 +3,7 @@
 // Windows 凭据管理器（DPAPI）存取密码、CSV 原生另存为。
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod background;
 mod startup_diagnostics;
 mod startup_log;
 
@@ -394,6 +395,7 @@ fn configure_app_state(
     // 主窗口在此手动创建（tauri.conf.json 中 create=false），
     // 以便精确记录 WebView2 创建卡点并按系统版本注入浏览器参数
     create_main_window(app, log_path, tracker, failed_startups)?;
+    background::setup_tray(app, log_path)?;
     let windows = app.webview_windows().keys().cloned().collect::<Vec<_>>();
     let _ = startup_log::write_log(log_path, "INFO", &format!("configured windows={windows:?}"));
     tracker.mark(
@@ -422,9 +424,15 @@ fn build_application(
         .plugin(dialog)
         .plugin(window_state)
         .on_window_event(move |window, event| match event {
-            WindowEvent::CloseRequested { .. }
-            | WindowEvent::Destroyed
-            | WindowEvent::Focused(_) => {
+            WindowEvent::CloseRequested { api, .. } => {
+                let message = format!("window event: label={} event={event:?}", window.label());
+                let _ = startup_log::write_log(&window_path, "INFO", &message);
+                if window.label() == "main" {
+                    api.prevent_close();
+                    background::hide_main_window(window, &window_path);
+                }
+            }
+            WindowEvent::Destroyed | WindowEvent::Focused(_) => {
                 let message = format!("window event: label={} event={event:?}", window.label());
                 let _ = startup_log::write_log(&window_path, "INFO", &message);
             }
