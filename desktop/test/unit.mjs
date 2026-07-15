@@ -992,7 +992,6 @@ await testPagedRowCollection();
 await testExtensionCredentialEncryption();
 await testDesktopApiSchemaRequests();
 await testDesktopExtensionParity();
-await import('./autocomplete-qualified.mjs');
 await import('./console-session.mjs');
 await import('./pagination.mjs');
 console.log('PASS  unit: SQL splitting, multi-statement formatting, autocomplete, table extraction, session persistence, CSV and dual-end parity');

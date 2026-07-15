@@ -456,22 +456,9 @@ export function detectSqlCompletionContext(source, cursorPosition, prefixLength 
  * 从 SQL 中提取 SELECT 涉及的表名，用于字段联想。
  * 匹配 FROM / JOIN / UPDATE / INTO 后的表名，支持反引号标识符与 `schema.table` 形式（取末段表名）。
  * 跳过其后紧跟子查询关键字（SELECT/`( 等）的情况，避免把子查询误当表名。
- * 同时识别 AS 或省略 AS 的表别名；返回只读数组。供 sql-editor 内部使用，亦导出供单测。
+ * 返回只读数组。供 sql-editor 内部使用，亦导出供单测。
  */
 const TABLE_REF_PATTERN = /\b(?:from|join|update|into)\s+(?:(?:`([^`]+)`|"([^"]+)"|([A-Za-z_][\w$]*))\s*\.\s*)?(?:`([^`]+)`|"([^"]+)"|([A-Za-z_][\w$]*))/gi;
-const TABLE_ALIAS_PATTERN = /^\s+(?:as\s+)?(?:`([^`]+)`|"([^"]+)"|([A-Za-z_][\w$]*))/i;
-const TABLE_ALIAS_EXCLUDED_WORDS = new Set([
-  'where', 'join', 'left', 'right', 'inner', 'outer', 'full', 'cross', 'natural', 'on', 'using',
-  'set', 'values', 'group', 'order', 'having', 'limit', 'offset', 'fetch', 'union', 'except',
-  'intersect', 'returning', 'for', 'window',
-]);
-
-function extractTableAlias(source, tableEnd) {
-  const match = TABLE_ALIAS_PATTERN.exec(source.slice(tableEnd));
-  if (!match) return '';
-  const alias = match[1] || match[2] || match[3];
-  return TABLE_ALIAS_EXCLUDED_WORDS.has(alias.toLowerCase()) ? '' : alias;
-}
 
 export function extractReferencedTableRefs(source) {
   const text = String(source == null ? '' : source);
@@ -480,10 +467,8 @@ export function extractReferencedTableRefs(source) {
   while ((match = TABLE_REF_PATTERN.exec(text))) {
     const schema = match[1] || match[2] || match[3] || '';
     const table = match[4] || match[5] || match[6];
-    const alias = extractTableAlias(text, TABLE_REF_PATTERN.lastIndex);
-    const key = schema + '\u001f' + table + '\u001f' + alias;
-    const reference = alias ? { schema, table, alias } : { schema, table };
-    if (!references.has(key)) references.set(key, Object.freeze(reference));
+    const key = schema + '\u001f' + table;
+    if (!references.has(key)) references.set(key, Object.freeze({ schema, table }));
   }
   return Object.freeze([...references.values()]);
 }
@@ -513,19 +498,6 @@ function isExactKeywordItem(item, beforeCursor, fallbackFrom) {
   const from = Number.isInteger(item.replaceFrom) ? item.replaceFrom : fallbackFrom;
   const typedText = beforeCursor.slice(from).trim().replace(/\s+/g, ' ').toLowerCase();
   return item.label.toLowerCase() === typedText;
-}
-
-export function resolveSqlAutocompleteInput(source) {
-  const text = String(source == null ? '' : source);
-  const qualified = /([A-Za-z_][\w$]*)\.([A-Za-z_][\w$]*)?$/.exec(text);
-  if (qualified) return Object.freeze({ qualifier: qualified[1], prefix: qualified[2] || '' });
-  const prefix = /[A-Za-z_][\w$]*$/.exec(text);
-  return prefix ? Object.freeze({ qualifier: '', prefix: prefix[0] }) : null;
-}
-
-function qualifiedIdentifierQualifier(beforeCursor, prefixStart) {
-  const match = /([A-Za-z_][\w$]*)\.$/.exec(beforeCursor.slice(0, prefixStart));
-  return match ? match[1] : '';
 }
 
 export class SqlAutocomplete {
@@ -572,14 +544,14 @@ export class SqlAutocomplete {
     if (!this.isValidTarget(context, textarea, isWhere)) return this.hide();
     const position = textarea.selectionStart;
     const before = textarea.value.slice(0, position);
-    const input = resolveSqlAutocompleteInput(before);
-    if (!input) return this.hide();
-    const { prefix, qualifier } = input;
+    const prefixMatch = /[A-Za-z_][\w$]*$/.exec(before);
+    if (!prefixMatch) return this.hide();
+    const prefix = prefixMatch[0];
     const sequence = ++this.sequence;
     const refresh = () => {
       if (sequence === this.sequence && document.activeElement === textarea) this.update(textarea);
     };
-    const items = this.collectItems({ context, textarea, isWhere, prefix, qualifier, refresh });
+    const items = this.collectItems({ context, textarea, isWhere, prefix, refresh });
     if (!items.length) return this.hide();
     this.state = {
       open: true,
@@ -607,7 +579,6 @@ export class SqlAutocomplete {
       ? options.textarea.value.slice(0, position)
       : options.prefix;
     const fallbackFrom = Math.max(0, beforeCursor.length - options.prefix.length);
-    const qualifier = options.qualifier || qualifiedIdentifierQualifier(beforeCursor, fallbackFrom);
     const functionItems = this.collectFunctionItems(options.context, options.prefix, lowerPrefix);
     const items = options.isWhere
       ? this.collectWhereItems(options.context, lowerPrefix).concat(functionItems)
@@ -615,7 +586,6 @@ export class SqlAutocomplete {
         context: options.context,
         sql: extractSqlStatementAt(options.textarea.value, options.textarea.selectionStart),
         lowerPrefix,
-        qualifier,
         refresh: options.refresh,
         functionItems,
         completionContext: detectSqlCompletionContext(
@@ -624,9 +594,7 @@ export class SqlAutocomplete {
           options.prefix.length,
         ),
       });
-    const keywordItems = qualifier
-      ? []
-      : this.collectKeywordItems(options.prefix, lowerPrefix, beforeCursor);
+    const keywordItems = this.collectKeywordItems(options.prefix, lowerPrefix, beforeCursor);
     const exactKeywords = keywordItems.filter(item => isExactKeywordItem(item, beforeCursor, fallbackFrom));
     const partialKeywords = keywordItems.filter(item => !isExactKeywordItem(item, beforeCursor, fallbackFrom));
     const exactItems = items.filter(item => item.label.toLowerCase() === lowerPrefix);
@@ -648,11 +616,8 @@ export class SqlAutocomplete {
   }
 
   collectConsoleItems(options) {
-    const { context, sql, lowerPrefix, qualifier, refresh, functionItems, completionContext } = options;
+    const { context, sql, lowerPrefix, refresh, functionItems, completionContext } = options;
     if (!context.instance || !context.db) return [];
-    if (qualifier && completionContext !== 'table') {
-      return this.collectQualifiedColumnItems({ context, sql, qualifier, lowerPrefix, refresh });
-    }
     const excludedTable = completionContext === 'table' ? lowerPrefix : '';
     const columns = this.collectColumnItems({ context, sql, lowerPrefix, refresh, excludedTable });
     const allColumnsItem = completionContext === 'select-list'
@@ -664,32 +629,13 @@ export class SqlAutocomplete {
     const fieldItems = allColumnsItem
       ? exactColumns.concat([allColumnsItem], partialColumns)
       : columns;
-    const tableItems = this.collectTableItems(
-      context,
-      lowerPrefix,
-      refresh,
-      completionContext === 'table',
-    );
-    const aliasItems = completionContext === 'table'
-      ? []
-      : this.collectAliasItems(sql, lowerPrefix);
+    const tableItems = this.collectTableItems(context, lowerPrefix, refresh);
     return completionContext === 'table'
       ? tableItems.concat(fieldItems)
-      : fieldItems.concat(functionItems, aliasItems, tableItems);
+      : fieldItems.concat(functionItems, tableItems);
   }
 
-  collectAliasItems(sql, lowerPrefix) {
-    const aliases = this.referencedTableRefs(sql).filter(reference => reference.alias);
-    return rankCandidates(aliases, lowerPrefix, reference => reference.alias)
-      .map(reference => ({
-        label: reference.alias,
-        insert: reference.alias,
-        kind: 'alias · ' + reference.table,
-        appendSpace: false,
-      }));
-  }
-
-  collectTableItems(context, lowerPrefix, refresh, appendSpace = true) {
+  collectTableItems(context, lowerPrefix, refresh) {
     const tableKey = resourceContextKey({
       origin: context.origin,
       instance: context.instance,
@@ -701,35 +647,7 @@ export class SqlAutocomplete {
       return [];
     }
     return rankCandidates(this.tables.get(tableKey), lowerPrefix, table => table)
-      .map(table => ({ label: table, insert: table, kind: 'table', appendSpace }));
-  }
-
-  collectQualifiedColumnItems(options) {
-    const { context, sql, qualifier, lowerPrefix, refresh } = options;
-    const reference = this.referencedTableRefs(sql).find(candidate => {
-      const lowerQualifier = qualifier.toLowerCase();
-      return candidate.table.toLowerCase() === lowerQualifier
-        || (candidate.alias && candidate.alias.toLowerCase() === lowerQualifier);
-    });
-    const schema = reference ? reference.schema || context.schema || '' : context.schema || '';
-    const table = reference ? reference.table : qualifier;
-    const key = resourceContextKey({
-      origin: context.origin,
-      instance: context.instance,
-      db: context.db,
-      schema,
-      table,
-    });
-    if (!this.columns.has(key)) {
-      this.ensureColumns(context, { schema, table }, refresh);
-      return [];
-    }
-    const items = this.columns.get(key).map(column => ({
-      label: column.name,
-      insert: column.name,
-      kind: column.type,
-    }));
-    return lowerPrefix ? rankCandidates(items, lowerPrefix, item => item.label) : items;
+      .map(table => ({ label: table, insert: table, kind: 'table' }));
   }
 
   collectColumnItems(options) {
@@ -889,8 +807,7 @@ export class SqlAutocomplete {
     this.hide();
     if (!item || !textarea) return;
     const from = Number.isInteger(item.replaceFrom) ? item.replaceFrom : this.state.from;
-    const suffix = item.appendSpace === false ? '' : ' ';
-    const insertion = item.functionCall ? item.insert + '() ' : item.insert + suffix;
+    const insertion = item.functionCall ? item.insert + '() ' : item.insert + ' ';
     textarea.setRangeText(insertion, from, textarea.selectionStart, 'end');
     if (item.functionCall) {
       const argumentPosition = from + item.insert.length + 1;
