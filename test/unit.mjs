@@ -950,6 +950,7 @@ testConsoleQueryPagination();
 testCsv();
 await testPagedRowCollection();
 await testDesktopApiSchemaRequests();
+await import('./autocomplete-qualified.mjs');
 await import('./console-session.mjs');
 await import('./pagination.mjs');
 console.log('PASS  unit: SQL splitting, multi-statement formatting, autocomplete, table extraction, session persistence and CSV');
