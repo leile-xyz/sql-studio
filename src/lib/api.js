@@ -85,5 +85,11 @@ export const api = {
         };
     },
     /** CSV 导出：原生另存为对话框；resolve true=已保存 / false=用户取消 */
-    exportCsv: (defaultName, content) => invoke('export_csv', { defaultName, content })
+    exportCsv: (defaultName, content) => invoke('export_csv', { defaultName, content }),
+    dingtalk: Object.freeze({
+        status: () => invoke('dingtalk_config_status'),
+        save: (webhook, secret) => invoke('dingtalk_save_config', { webhook, secret }),
+        remove: () => invoke('dingtalk_delete_config'),
+        sendText: content => invoke('dingtalk_send_text', { content }),
+    })
 };

@@ -6,6 +6,7 @@
 |------|------|
 | [快速入门](getting-started.md) | Windows 构建、首次登录和服务端要求 |
 | [配置与本地数据](configuration.md) | 环境字段、配置文件、凭据存储、备份与清理 |
+| [插件](plugins.md) | 插件管理与钉钉机器人安全配置 |
 | [FAQ](FAQ.md) | 权限、CSRF、TLS、WebView2、SmartScreen 和 PostgreSQL 常见问题 |
 | [安全策略](../SECURITY.md) | 漏洞报告、支持范围和当前安全边界 |
 | [隐私说明](../PRIVACY.md) | 本地数据、网络请求和权限用途 |

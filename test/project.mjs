@@ -110,6 +110,20 @@ async function testConsoleLauncherStructure() {
   assert.ok(css.includes('#main.sidebar-collapsed #sidebarRail'));
 }
 
+async function testPluginModuleStructure() {
+  const html = await readUtf8('src/index.html');
+  for (const id of ['btnPlugins', 'pluginMask', 'pluginList', 'dingtalkCard', 'pluginBack', 'dingtalkDetail', 'dingtalkStatusBanner', 'dingtalkWebhook', 'dingtalkSecret', 'dingtalkTest']) {
+    assert.ok(html.includes(`id="${id}"`), 'plugin UI missing ' + id);
+  }
+  assert.ok(html.includes('class="plugin-card" id="dingtalkCard"'));
+  assert.ok(html.includes('type="password" id="dingtalkWebhook"'));
+  assert.ok(html.includes('type="password" id="dingtalkSecret"'));
+  const rust = await readUtf8('src-tauri/src/plugins/dingtalk.rs');
+  assert.ok(rust.includes('Policy::none()'), 'DingTalk client must reject redirects');
+  assert.ok(rust.includes('url.scheme() != "https"'), 'DingTalk webhook must require HTTPS');
+  assert.ok(!(await readUtf8('src/lib/store.js')).includes('access_token'));
+}
+
 function markdownTargets(source) {
   const targets = [];
   const pattern = /\[[^\]]*\]\(([^)]+)\)/g;
@@ -152,6 +166,7 @@ await testAboutDialogMetadata();
 await testAppEntrypointStructure();
 await testDesktopBackgroundMode();
 await testConsoleLauncherStructure();
+await testPluginModuleStructure();
 await testMarkdownLinks(files);
 await testEncodingAndSourceSize(files);
 console.log('PASS  project: community files, version/license metadata, Markdown links, UTF-8 and source size');

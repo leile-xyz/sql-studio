@@ -4,6 +4,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod background;
+mod plugins;
 
 use std::{collections::HashMap, fs, path::PathBuf, sync::Arc};
 
@@ -301,7 +302,11 @@ fn main() {
             cred_get,
             cred_delete,
             app_version,
-            export_csv
+            export_csv,
+            plugins::dingtalk::dingtalk_config_status,
+            plugins::dingtalk::dingtalk_save_config,
+            plugins::dingtalk::dingtalk_delete_config,
+            plugins::dingtalk::dingtalk_send_text
         ])
         .run(tauri::generate_context!())
         .expect("SQL Studio 启动失败");

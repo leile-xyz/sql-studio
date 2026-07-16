@@ -5,6 +5,7 @@ import { ICO } from './lib/icons.mjs';
 import { ConsoleSessionManager } from './lib/console-session.mjs';
 import { bindAppEvents } from './lib/app-events.mjs';
 import { bindAboutDialog } from './lib/about-dialog.mjs';
+import { bindPluginManager } from './lib/plugin-manager.mjs';
 import { executeConsoleStatement, fetchConsolePage } from './lib/console-execution.mjs';
 import { renderConsoleResultView } from './lib/console-result-view.mjs';
 import { createCsvExportActions } from './lib/csv-export-actions.mjs';
@@ -26,8 +27,7 @@ const state = {
   uidSeq: 0, nodeMap: new Map(),
   treeSel: null, // 与控制台联动的高亮 {inst, db, schema}
   lastCtx: null, // 最近浏览的上下文 {inst, db, schema}，新建控制台时继承
-};
-const $ = id => document.getElementById(id);
+}; const $ = id => document.getElementById(id);
 const curTab = () => state.tabs.find(t => t.id === state.activeTabId) || null;
 const isCurrentEnv = (env, origin) => !!env && env.id === state.activeEnvId && origin === state.origin;
 const consoleSessionManager = new ConsoleSessionManager({ store, onError: reportConsoleSessionError });
@@ -51,8 +51,7 @@ const autocomplete = new SqlAutocomplete({
   onWhereChange: value => { const tab = curTab(); if (tab) tab.whereDraft = value; },
   onError: (message, error) => console.error('[SQL Studio] ' + message, error),
 });
-/* ================= 初始化 ================= */
-async function init() {
+/* ================= 初始化 ================= */ async function init() {
   bindStatic();
   bindDelegation();
   try {
@@ -89,6 +88,7 @@ function bindStatic() {
   $('envMgrCancel').addEventListener('click', () => closeModal('envMgrMask'));
   $('envMgrSave').addEventListener('click', saveEnvMgr);
   bindAboutDialog({ api, toast });
+  bindPluginManager({ api, toast });
   document.addEventListener('click', event => { if (!event.target.closest('#consoleMenu, #consoleAllMenu, [data-act="toggle-console-menu"]')) hideMenus(); });
   window.addEventListener('pagehide', () => consoleSessionManager.flush().catch(reportConsoleSessionError));
   document.addEventListener('visibilitychange', () => {

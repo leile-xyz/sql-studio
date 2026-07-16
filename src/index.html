@@ -24,8 +24,53 @@
   <div class="spacer"></div>
   <div class="conn off" id="connBox"><span class="dot"></span><span id="connText">未连接</span></div>
   <button class="icon-btn" id="btnEnvMgr" title="环境管理">⚙</button>
+  <button class="icon-btn" id="btnPlugins" type="button" title="插件管理" aria-label="插件管理">🔌</button>
   <button class="icon-btn" id="btnRelogin" title="重新登录">⇄</button>
   <button class="icon-btn" id="btnAbout" type="button" title="关于 SQL Studio" aria-label="关于 SQL Studio">ⓘ</button>
+</div>
+
+<!-- 插件管理弹窗 -->
+<div class="mask" id="pluginMask">
+  <div class="modal wide plugin-manager-modal" role="dialog" aria-modal="true" aria-labelledby="pluginTitle">
+    <div class="plugin-modal-head">
+      <button class="icon-btn plugin-back" id="pluginBack" type="button" title="返回插件列表" aria-label="返回插件列表">‹</button>
+      <div><h3 id="pluginTitle">🔌 插件管理</h3><div class="desc" id="pluginDesc">选择插件查看详情和配置。</div></div>
+    </div>
+    <div class="plugin-list" id="pluginList">
+      <button class="plugin-card" id="dingtalkCard" type="button">
+        <span class="plugin-card-icon">钉</span>
+        <span class="plugin-card-content"><strong>钉钉机器人消息</strong><span>通过 Webhook + 加签发送群机器人通知</span></span>
+        <span class="plugin-card-status" id="dingtalkCardStatus">读取中…</span>
+        <span class="plugin-card-arrow">›</span>
+      </button>
+    </div>
+    <section class="plugin-detail" id="dingtalkDetail">
+      <div class="plugin-status-banner" id="dingtalkStatusBanner">
+        <span class="plugin-status-icon" id="dingtalkStatusIcon">—</span>
+        <div><strong>配置状态</strong><span id="dingtalkStatus">读取中…</span></div>
+      </div>
+      <div class="plugin-detail-section">
+        <div class="plugin-section-head"><div><strong>连接配置</strong><span>填写钉钉自定义机器人的安全凭据</span></div><span class="plugin-security-tag">🔒 凭据保护</span></div>
+        <div class="plugin-form-field">
+          <label for="dingtalkWebhook">Webhook</label>
+          <input type="password" id="dingtalkWebhook" autocomplete="off" placeholder="https://oapi.dingtalk.com/robot/send?access_token=...">
+          <span class="plugin-field-help">完整地址包含 access_token，保存后不会再次显示。</span>
+        </div>
+        <div class="plugin-form-field">
+          <label for="dingtalkSecret">加签密钥</label>
+          <input type="password" id="dingtalkSecret" autocomplete="off" placeholder="SEC...">
+          <span class="plugin-field-help">仅支持开启“加签”安全设置的机器人。</span>
+        </div>
+        <div class="plugin-actions"><button class="tbtn primary" id="dingtalkSave">保存配置</button><button class="tbtn danger" id="dingtalkDelete">删除配置</button></div>
+      </div>
+      <div class="plugin-detail-section plugin-test-section">
+        <div class="plugin-section-head"><div><strong>消息测试</strong><span>保存配置后发送一条消息验证连接</span></div></div>
+        <div class="plugin-test-row"><input type="text" id="dingtalkMessage" autocomplete="off"><button class="tbtn" id="dingtalkTest">发送测试</button></div>
+      </div>
+      <div class="err-line" id="dingtalkErr"></div>
+    </section>
+    <div class="btnrow plugin-modal-actions"><button class="tbtn" id="pluginClose">关闭</button></div>
+  </div>
 </div>
 <div class="menu" id="envMenu"></div>
 <div class="menu console-menu" id="consoleMenu"></div>
