@@ -30,6 +30,9 @@ import {
   quoteIdentifier,
   resourceContextKey,
 } from '../src/lib/db-context.mjs';
+import { createPluginNode, createWorkflowDraft, normalizeWorkflow, validateWorkflowDraft } from '../src/lib/workflow-model.mjs';
+import { renderExecutionList } from '../src/lib/workflow-history.mjs';
+import { defaultPluginConfig, isMessageBuilder, renderPluginConfig, validatePluginConfig } from '../src/lib/workflow-plugin-config.mjs';
 
 const FULL_SQL = 'SELECT 1;\nSELECT * FROM t_user;';
 const SELECTED_SQL = 'SELECT * FROM t_user;';
@@ -49,6 +52,40 @@ function testExecutionResolution() {
     sql: FULL_SQL,
     selectionUsed: false,
   });
+}
+
+function testWorkflowModel() {
+  const draft = createWorkflowDraft('env-test');
+  assert.equal(draft.dataSource.environmentId, 'env-test');
+  assert.equal(draft.nodes[0].nodeKind, 'sql');
+  assert.ok(Object.isFrozen(draft) && Object.isFrozen(draft.nodes));
+  const resource = Object.freeze({ id: 'robot-1', name: 'DBA 群', pluginKey: 'dingtalk', category: 'sink', terminal: true, inputType: 'message', outputType: 'none' });
+  const plugin = createPluginNode(resource, 1);
+  assert.equal(plugin.terminal, true);
+  assert.equal(plugin.pluginResourceId, 'robot-1');
+  const valid = normalizeWorkflow({
+    id: 'wf-1', draftRevision: 2, name: '日报', dataSource: { environmentId: 'env-test', instanceId: '1', instanceName: 'pg', databaseName: 'app', databaseType: 'pgsql', schemaName: 'public' },
+    nodes: [{ nodeKind: 'sql', name: 'SQL', sql: 'SELECT 1', outputType: 'table' }, plugin],
+  });
+  assert.equal(validateWorkflowDraft(valid), valid);
+  assert.equal(valid.expectedDraftRevision, 2);
+  assert.throws(() => validateWorkflowDraft({ ...valid, name: '' }), /名称/);
+  assert.throws(() => validateWorkflowDraft({ ...valid, dataSource: { ...valid.dataSource, schemaName: null } }), /模式/);
+  assert.throws(() => validateWorkflowDraft({ ...valid, nodes: [plugin, valid.nodes[0]] }), /SQL/);
+  assert.throws(() => validateWorkflowDraft({ ...valid, nodes: [{ ...valid.nodes[0], sql: 'SELECT 1; SELECT 2' }, plugin] }), /一条查询/);
+  assert.throws(() => validateWorkflowDraft({ ...valid, nodes: [{ ...valid.nodes[0], sqlKind: 'command' }, plugin] }), /查询类型/);
+}
+
+function testWorkflowPluginConfig() {
+  const resource = { pluginKey: 'message_builder' };
+  const config = defaultPluginConfig(resource);
+  assert.match(config.bodyTemplate, /\{\{table\}\}/);
+  assert.equal(config.emptyBehavior, 'send');
+  assert.ok(isMessageBuilder({ pluginKey: 'message_builder' }));
+  const node = { pluginKey: 'message_builder', name: '构建消息', pluginConfig: config };
+  assert.match(renderPluginConfig(node, 1), /data-plugin-template="1"/);
+  assert.doesNotThrow(() => validatePluginConfig(node));
+  assert.throws(() => validatePluginConfig({ ...node, pluginConfig: { ...config, bodyTemplate: '' } }), /消息模板/);
 }
 
 function testEditorUtilities() {
@@ -241,6 +278,7 @@ async function testDesktopApiSchemaRequests() {
   };
   try {
     const { api } = await import('../src/lib/api.js?schema-contract');
+    api.setSession('env-test', 'tester', 'http://archery');
     assert.deepEqual(await api.schemas('http://archery', { instance: 'mock-pg', db: 'dify' }), ['public']);
     await api.tables('http://archery', { instance: 'mock-pg', db: 'dify', schema: 'public' });
     const metadata = await api.describe('http://archery', {
@@ -926,6 +964,9 @@ async function testPagedRowCollection() {
 }
 
 testExecutionResolution();
+assert.match(renderExecutionList([{ id: 'e1', status: 'succeeded', triggerType: 'manual', createdAt: 'now' }]), /e1/);
+testWorkflowModel();
+testWorkflowPluginConfig();
 testEditorUtilities();
 testDbContextHelpers();
 testPostgresTableDescription();
@@ -953,4 +994,6 @@ await testDesktopApiSchemaRequests();
 await import('./autocomplete-qualified.mjs');
 await import('./console-session.mjs');
 await import('./pagination.mjs');
+await import('./message-center.mjs');
+await import('./execution-detail.mjs');
 console.log('PASS  unit: SQL splitting, multi-statement formatting, autocomplete, table extraction, session persistence and CSV');

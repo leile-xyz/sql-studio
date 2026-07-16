@@ -11,16 +11,31 @@ function invoke(cmd, args) {
     });
 }
 
-const get = (origin, path) => invoke('api_get', { origin, path });
-const post = (origin, path, form) => invoke('api_post', { origin, path, form });
+const sessions = new Map();
+
+function sessionFor(origin) {
+    const session = sessions.get(origin);
+    if (!session) throw new Error('Archery 会话上下文未配置');
+    return session;
+}
+
+const get = (origin, path) => invoke('api_get', { session: sessionFor(origin), path });
+const post = (origin, path, form) => invoke('api_post', { session: sessionFor(origin), path, form });
 const resource = (origin, params) =>
     get(origin, '/instance/instance_resource/?' + new URLSearchParams(params));
 
 export const api = {
+    setSession: (envId, username, origin) => {
+        if (!envId || !username || !origin) throw new Error('Archery 会话上下文不完整');
+        sessions.set(origin, Object.freeze({ envId, username, origin }));
+    },
     /** 当前桌面应用版本 */
     appVersion: () => invoke('app_version'),
     /** 登录，成功 resolve，失败 reject（附带 Archery 返回的 msg） */
-    login: (origin, username, password) => invoke('login', { origin, username, password }),
+    login: (envId, origin, username, password) => {
+        api.setSession(envId, username, origin);
+        return invoke('login', { session: sessionFor(origin), password });
+    },
     /** 探测会话是否有效（能否取到实例列表） */
     checkSession: async (origin) => { await api.instances(origin); return { ok: true }; },
     /** 实例（集群）列表 → [{id,type,db_type,instance_name}] */

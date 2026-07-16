@@ -3,177 +3,22 @@
 // Windows 凭据管理器（DPAPI）存取密码、CSV 原生另存为。
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod archery;
 mod background;
+mod notifications;
 mod plugins;
+mod scheduler;
+mod storage;
+mod workflows;
 
-use std::{collections::HashMap, fs, path::PathBuf, sync::Arc};
+use std::{fs, path::PathBuf};
 
-use reqwest::cookie::{CookieStore, Jar};
-use reqwest::Client;
 use serde_json::{json, Value};
 use tauri::{Manager, State, WindowEvent};
 use tauri_plugin_dialog::DialogExt;
 use tokio::sync::Mutex;
 
-const UA: &str = "Mozilla/5.0 (SQL Studio Desktop)";
 const KEYRING_SERVICE: &str = "sql-studio";
-
-/* ============ 每环境 HTTP 客户端（独立 Cookie Jar，复现浏览器按域隔离会话） ============ */
-
-struct EnvClient {
-    client: Client,
-    jar: Arc<Jar>,
-}
-
-#[derive(Default)]
-struct Http(Mutex<HashMap<String, Arc<EnvClient>>>);
-
-async fn env_client(http: &Http, origin: &str) -> Result<Arc<EnvClient>, String> {
-    let mut map = http.0.lock().await;
-    if let Some(ec) = map.get(origin) {
-        return Ok(ec.clone());
-    }
-    let jar = Arc::new(Jar::default());
-    let client = Client::builder()
-        .cookie_provider(jar.clone())
-        .user_agent(UA)
-        // 目标均为内网 Archery：忽略系统/环境变量代理，直连
-        .no_proxy()
-        // 内网自签 https 兼容；目标环境均为受控内网 Archery
-        .danger_accept_invalid_certs(true)
-        .build()
-        .map_err(|e| e.to_string())?;
-    let ec = Arc::new(EnvClient { client, jar });
-    map.insert(origin.to_string(), ec.clone());
-    Ok(ec)
-}
-
-/// 从该环境 Jar 中读取指定 Cookie（如 csrftoken）
-fn cookie_value(jar: &Jar, origin: &str, name: &str) -> String {
-    let url = match origin.parse() {
-        Ok(u) => u,
-        Err(_) => return String::new(),
-    };
-    let header = match jar.cookies(&url) {
-        Some(h) => h,
-        None => return String::new(),
-    };
-    let s = header.to_str().unwrap_or("");
-    for pair in s.split(';') {
-        let pair = pair.trim();
-        if let Some(v) = pair.strip_prefix(&format!("{name}=")) {
-            return v.to_string();
-        }
-    }
-    String::new()
-}
-
-/// 按 Archery JSON 协议解析：{status, msg, data}；status!=0 或非 JSON 均报错
-fn parse_archery_response(text: &str, http_status: u16) -> Result<Value, String> {
-    let v: Value = match serde_json::from_str(text) {
-        Ok(v) => v,
-        Err(_) => {
-            // 未登录时 Archery 重定向到登录页返回 HTML
-            let low = text.to_lowercase();
-            if low.contains("<html") || low.contains("<!doctype") {
-                return Err("未登录或会话已过期，请重新登录".into());
-            }
-            return Err(format!("响应解析失败（HTTP {http_status}）"));
-        }
-    };
-    if v["status"] != json!(0) {
-        let msg = v["msg"].as_str().unwrap_or("").to_string();
-        return Err(if msg.is_empty() {
-            format!("请求失败（status={}）", v["status"])
-        } else {
-            msg
-        });
-    }
-    Ok(v["data"].clone())
-}
-
-const NET_ERR: &str = "网络请求失败，请检查是否连入内网 / 域名是否可达";
-
-/* ============ 业务 command ============ */
-
-/// 登录：先 GET /login/ 取 csrftoken，再 POST /authenticate/
-#[tauri::command]
-async fn login(
-    http: State<'_, Http>,
-    origin: String,
-    username: String,
-    password: String,
-) -> Result<(), String> {
-    let ec = env_client(&http, &origin).await?;
-    // 触发服务端下发 csrftoken（若已有则复用），允许失败
-    let _ = ec.client.get(format!("{origin}/login/")).send().await;
-    let token = cookie_value(&ec.jar, &origin, "csrftoken");
-    let resp = ec
-        .client
-        .post(format!("{origin}/authenticate/"))
-        .header("X-CSRFToken", &token)
-        .header("X-Requested-With", "XMLHttpRequest")
-        .header("Origin", &origin)
-        .header("Referer", format!("{origin}/login/"))
-        .form(&[
-            ("username", username.as_str()),
-            ("password", password.as_str()),
-        ])
-        .send()
-        .await
-        .map_err(|_| NET_ERR.to_string())?;
-    let status = resp.status().as_u16();
-    let text = resp.text().await.map_err(|e| e.to_string())?;
-    let v: Value =
-        serde_json::from_str(&text).map_err(|_| format!("登录响应异常（HTTP {status}）"))?;
-    if v["status"] != json!(0) {
-        return Err(v["msg"].as_str().unwrap_or("用户名或密码错误").to_string());
-    }
-    Ok(())
-}
-
-/// GET 业务接口，返回 Archery 协议中的 data 字段
-#[tauri::command]
-async fn api_get(http: State<'_, Http>, origin: String, path: String) -> Result<Value, String> {
-    let ec = env_client(&http, &origin).await?;
-    let resp = ec
-        .client
-        .get(format!("{origin}{path}"))
-        .header("X-Requested-With", "XMLHttpRequest")
-        .header("Accept", "application/json, text/javascript, */*; q=0.01")
-        .send()
-        .await
-        .map_err(|_| NET_ERR.to_string())?;
-    let status = resp.status().as_u16();
-    let text = resp.text().await.map_err(|e| e.to_string())?;
-    parse_archery_response(&text, status)
-}
-
-/// POST 业务接口（表单编码 + CSRF），返回 data 字段
-#[tauri::command]
-async fn api_post(
-    http: State<'_, Http>,
-    origin: String,
-    path: String,
-    form: HashMap<String, String>,
-) -> Result<Value, String> {
-    let ec = env_client(&http, &origin).await?;
-    let token = cookie_value(&ec.jar, &origin, "csrftoken");
-    let resp = ec
-        .client
-        .post(format!("{origin}{path}"))
-        .header("X-CSRFToken", &token)
-        .header("X-Requested-With", "XMLHttpRequest")
-        .header("Origin", &origin)
-        .header("Referer", format!("{origin}/sqlquery/"))
-        .form(&form)
-        .send()
-        .await
-        .map_err(|_| NET_ERR.to_string())?;
-    let status = resp.status().as_u16();
-    let text = resp.text().await.map_err(|e| e.to_string())?;
-    parse_archery_response(&text, status)
-}
 
 /* ============ 本地 KV 存储（环境列表 / 查询历史等非敏感数据） ============ */
 
@@ -265,7 +110,11 @@ async fn export_csv(
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            background::restore_main_window(app).expect("恢复已有 SQL Studio 主窗口失败");
+        }))
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
@@ -280,6 +129,10 @@ fn main() {
             let dir = app.path().app_config_dir()?;
             fs::create_dir_all(&dir)?;
             let path = dir.join("store.json");
+            let workflow_db = storage::WorkflowDb::initialize(dir.join("workflow.db"))?;
+            workflows::execution_repository::interrupt_running(
+                &mut workflow_db.open_connection()?,
+            )?;
             let data = fs::read_to_string(&path)
                 .ok()
                 .and_then(|s| serde_json::from_str(&s).ok())
@@ -288,14 +141,16 @@ fn main() {
                 path,
                 data: Mutex::new(data),
             });
-            app.manage(Http::default());
+            app.manage(archery::ArcheryService::default());
+            app.manage(workflow_db);
+            app.manage(scheduler::SchedulerHost::start(app.handle().clone()));
             background::setup_tray(app)?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            login,
-            api_get,
-            api_post,
+            archery::login,
+            archery::api_get,
+            archery::api_post,
             kv_get,
             kv_set,
             cred_set,
@@ -306,7 +161,32 @@ fn main() {
             plugins::dingtalk::dingtalk_config_status,
             plugins::dingtalk::dingtalk_save_config,
             plugins::dingtalk::dingtalk_delete_config,
-            plugins::dingtalk::dingtalk_send_text
+            plugins::dingtalk::dingtalk_send_text,
+            workflows::commands::workflow_create,
+            workflows::commands::workflow_list,
+            workflows::commands::workflow_get,
+            workflows::commands::workflow_update,
+            workflows::commands::workflow_copy,
+            workflows::commands::workflow_archive,
+            workflows::commands::workflow_set_enabled,
+            workflows::commands::workflow_plugin_resource_register,
+            workflows::commands::workflow_plugin_resources,
+            workflows::commands::workflow_publish,
+            workflows::commands::workflow_version_get,
+            workflows::commands::run_workflow_manual,
+            workflows::commands::list_workflow_executions,
+            workflows::commands::get_workflow_execution,
+            workflows::schedule_commands::workflow_schedule_get,
+            workflows::schedule_commands::workflow_schedule_upsert,
+            workflows::schedule_commands::workflow_schedule_set_enabled,
+            workflows::schedule_commands::workflow_schedule_delete,
+            notifications::commands::message_list,
+            notifications::commands::message_unread_count,
+            notifications::commands::message_mark_read,
+            notifications::commands::message_mark_all_read,
+            notifications::commands::message_preferences_get,
+            notifications::commands::message_preferences_update,
+            notifications::commands::message_deliver_native
         ])
         .run(tauri::generate_context!())
         .expect("SQL Studio 启动失败");

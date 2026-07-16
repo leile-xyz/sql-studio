@@ -30,5 +30,8 @@
 | [SQL 自动联想](sql-autocomplete-enhancements/) | 语句隔离、跨词匹配、方言函数、完全匹配与 schema 隔离 | 已实现并验证 |
 | [数据网格与树联动](console-grid-enhancements/) | 网格列宽、排序筛选、复制导出、资源树联动 | 已实现并验证 |
 | [Windows 桌面端](windows-desktop/) | Tauri 2 架构、凭据、构建和运行边界 | 已实现并验证 |
+| [执行流程需求](execution-workflow/) | 流水线、插件数据链路、执行记录与存储边界 | 需求已整理 |
+| [流水线技术方案](execution-workflow/technical-design.md) | Rust 后台执行、SQLite、调度、插件与通知中心架构 | 待实施 |
+| [流水线执行计划](execution-workflow/implementation-plan.md) | 分阶段任务、完成门禁、测试与交付策略 | 待实施 |
 
 `windows-desktop/技术方案.md` 保留为历史设计与实施记录；当前行为以根 README、用户文档和代码为准。

@@ -16,6 +16,7 @@ import { buildBrowseSql, buildCountSql, findDbType, isPostgresType, parseCountTo
 import { renderTabBarView, showAllConsolesMenu, showConsoleMenu, showTabContextMenu } from './lib/console-menu-view.mjs';
 import { ConsoleRenameController } from './lib/console-rename.mjs';
 import { closeWorkspaceTabs, consoleSessionState, createNewConsole, defaultConsoleTab, deleteWorkspaceConsole, restoreConsoleWorkspace } from './lib/console-workspace.mjs';
+import { bindWorkflowManager } from './lib/workflow-manager.mjs';
 const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const attr = s => String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const state = {
@@ -27,7 +28,7 @@ const state = {
   uidSeq: 0, nodeMap: new Map(),
   treeSel: null, // 与控制台联动的高亮 {inst, db, schema}
   lastCtx: null, // 最近浏览的上下文 {inst, db, schema}，新建控制台时继承
-}; const $ = id => document.getElementById(id);
+}; let workflowManager; const $ = id => document.getElementById(id);
 const curTab = () => state.tabs.find(t => t.id === state.activeTabId) || null;
 const isCurrentEnv = (env, origin) => !!env && env.id === state.activeEnvId && origin === state.origin;
 const consoleSessionManager = new ConsoleSessionManager({ store, onError: reportConsoleSessionError });
@@ -71,8 +72,8 @@ const autocomplete = new SqlAutocomplete({
 function bindStatic() {
   consoleRename.bind();
   $('envBtn').addEventListener('click', e => { e.stopPropagation(); toggleEnvMenu(); });
-  $('btnEnvMgr').addEventListener('click', openEnvMgr);
-  $('btnRelogin').addEventListener('click', () => openLogin());
+  $('btnEnvMgr')?.addEventListener('click', openEnvMgr);
+  $('btnRelogin')?.addEventListener('click', () => openLogin());
   $('btnRefreshTree').addEventListener('click', refreshTree);
   $('btnCollapse').addEventListener('click', collapseAll);
   $('btnSidebarCollapse').addEventListener('click', () => setSidebarCollapsed(true));
@@ -88,7 +89,7 @@ function bindStatic() {
   $('envMgrCancel').addEventListener('click', () => closeModal('envMgrMask'));
   $('envMgrSave').addEventListener('click', saveEnvMgr);
   bindAboutDialog({ api, toast });
-  bindPluginManager({ api, toast });
+  bindPluginManager({ api, toast }); workflowManager = bindWorkflowManager({ api, toast, getAppState: () => ({ envs: state.envs, activeEnvId: state.activeEnvId, origin: state.origin, username: state.user }) });
   document.addEventListener('click', event => { if (!event.target.closest('#consoleMenu, #consoleAllMenu, [data-act="toggle-console-menu"]')) hideMenus(); });
   window.addEventListener('pagehide', () => consoleSessionManager.flush().catch(reportConsoleSessionError));
   document.addEventListener('visibilitychange', () => {
@@ -124,8 +125,7 @@ async function applyEnv(id) {
   }
   renderEnvUI();
   renderTabs();
-  renderBody();
-  renderTree();
+  renderBody(); renderTree(); await workflowManager?.environmentChanged();
 }
 function renderEnvUI() {
   const e = state.env;
@@ -175,21 +175,20 @@ async function ensureConnected() {
   if (!state.env) return;
   const env = state.env; const origin = state.origin;
   state.connecting = true; renderEnvUI(); renderTree();
+  const cred = await store.getCred(env.id);
+  if (cred.user) api.setSession(env.id, cred.user, origin);
   // 1. 已有会话
   try {
     await api.checkSession(origin);
-    if (!isCurrentEnv(env, origin)) return;
-    const cred = await store.getCred(env.id);
     if (!isCurrentEnv(env, origin)) return;
     state.user = cred.user || '';
     await onConnected();
     return;
   } catch (e) { if (!isCurrentEnv(env, origin)) return; }
   // 2. 记住的密码自动登录
-  const cred = await store.getCred(env.id);
   if (cred.remember && cred.password) {
     try {
-      await api.login(origin, cred.user, cred.password);
+      await api.login(env.id, origin, cred.user, cred.password);
       if (!isCurrentEnv(env, origin)) return;
       state.user = cred.user;
       await onConnected();
@@ -258,7 +257,7 @@ async function doLogin() {
   $('loginErr').textContent = '';
   try {
     const origin = store.envOrigin(env);
-    await api.login(origin, user, pwd);
+    await api.login(envId, origin, user, pwd);
     const envChanged = env.scheme !== storedEnv.scheme || env.base !== storedEnv.base;
     const envs = state.envs.map(item => item.id === envId ? env : item);
     await store.saveEnvs(envs);

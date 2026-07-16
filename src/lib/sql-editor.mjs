@@ -540,6 +540,7 @@ export class SqlAutocomplete {
     this.onEditorChange = options.onEditorChange;
     this.onWhereChange = options.onWhereChange;
     this.onError = options.onError;
+    this.popupId = options.popupId || 'acPop';
     this.tables = new Map();
     this.columns = new Map();
     this.state = { open: false, items: [], selected: 0, from: 0, textarea: null };
@@ -552,10 +553,11 @@ export class SqlAutocomplete {
   }
 
   popup() {
-    let popup = document.getElementById('acPop');
+    let popup = document.getElementById(this.popupId);
     if (popup) return popup;
     popup = document.createElement('div');
-    popup.id = 'acPop';
+    popup.id = this.popupId;
+    popup.className = 'sql-autocomplete-popup';
     document.body.appendChild(popup);
     popup.addEventListener('mousedown', event => {
       event.preventDefault();
@@ -567,7 +569,7 @@ export class SqlAutocomplete {
 
   hide() {
     this.state.open = false;
-    const popup = document.getElementById('acPop');
+    const popup = document.getElementById(this.popupId);
     if (popup) popup.classList.remove('show');
   }
 
@@ -600,7 +602,7 @@ export class SqlAutocomplete {
 
   isValidTarget(context, textarea, isWhere) {
     if (!context || document.activeElement !== textarea) return false;
-    return isWhere ? context.type === 'table' : context.type === 'console';
+    return isWhere ? context.type === 'table' : context.type === 'console' || context.type === 'workflow';
   }
 
   collectItems(options) {

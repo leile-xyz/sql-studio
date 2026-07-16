@@ -75,7 +75,7 @@ fn is_restore_click(event: &TrayIconEvent) -> bool {
     )
 }
 
-fn restore_main_window(handle: &AppHandle) -> tauri::Result<()> {
+pub fn restore_main_window(handle: &AppHandle) -> tauri::Result<()> {
     let window = handle
         .get_webview_window(MAIN_WINDOW_LABEL)
         .expect("主窗口不存在，无法从系统托盘恢复");

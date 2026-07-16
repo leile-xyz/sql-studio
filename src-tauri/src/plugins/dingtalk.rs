@@ -29,7 +29,36 @@ pub struct ConfigStatus {
 #[derive(Deserialize)]
 struct DingTalkResponse {
     errcode: i64,
-    errmsg: String,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct DingTalkMessage {
+    pub format: String,
+    pub title: String,
+    pub body: String,
+    pub at_all: bool,
+    pub at_mobiles: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DingTalkReceipt {
+    pub http_status: u16,
+    pub errcode: i64,
+    pub message_type: String,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum DispatchFailureKind {
+    Failed,
+    Interrupted,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct DispatchFailure {
+    pub kind: DispatchFailureKind,
+    pub code: &'static str,
+    pub safe_message: String,
 }
 
 fn credential_entry() -> Result<keyring::Entry, String> {
@@ -92,6 +121,10 @@ fn load_credentials() -> Result<Option<Credentials>, String> {
         .map_err(|_| "钉钉插件凭据格式无效，请重新配置".into())
 }
 
+pub fn is_configured() -> Result<bool, String> {
+    Ok(load_credentials()?.is_some())
+}
+
 fn mask_webhook(webhook: &str) -> String {
     validate_webhook(webhook)
         .ok()
@@ -152,46 +185,117 @@ pub fn dingtalk_delete_config() -> Result<(), String> {
 
 #[tauri::command]
 pub async fn dingtalk_send_text(content: String) -> Result<(), String> {
-    let content = content.trim();
-    if content.is_empty() || content.chars().count() > MAX_MESSAGE_LENGTH {
-        return Err("消息内容不能为空且不能超过 20000 个字符".into());
-    }
-    let credentials = load_credentials()?.ok_or("请先配置钉钉机器人插件")?;
+    let message = DingTalkMessage {
+        format: "text".into(),
+        title: String::new(),
+        body: content,
+        at_all: false,
+        at_mobiles: Vec::new(),
+    };
+    send_message(&message)
+        .await
+        .map(|_| ())
+        .map_err(|failure| failure.safe_message)
+}
+
+pub(crate) async fn send_message(
+    message: &DingTalkMessage,
+) -> Result<DingTalkReceipt, DispatchFailure> {
+    validate_message(message)?;
+    let credentials = load_credentials()
+        .map_err(|_| failed("DINGTALK_CREDENTIAL_READ_FAILED", "读取钉钉插件凭据失败"))?
+        .ok_or_else(|| failed("DINGTALK_NOT_CONFIGURED", "钉钉机器人尚未配置"))?;
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map_err(|_| "系统时间无效".to_string())?
+        .map_err(|_| failed("SYSTEM_TIME_INVALID", "系统时间无效"))?
         .as_millis() as i64;
-    let url = signed_url(&credentials.webhook, &credentials.secret, timestamp)?;
+    let url = signed_url(&credentials.webhook, &credentials.secret, timestamp)
+        .map_err(|_| failed("DINGTALK_SIGN_FAILED", "钉钉请求加签失败"))?;
     let client = Client::builder()
         .redirect(Policy::none())
         .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECONDS))
         .build()
-        .map_err(|e| e.to_string())?;
+        .map_err(|_| failed("DINGTALK_CLIENT_FAILED", "创建钉钉请求客户端失败"))?;
+    let payload = message_payload(message);
     let response = client
         .post(url)
-        .json(&json!({
-            "msgtype": "text", "text": { "content": content },
-            "at": { "atMobiles": [], "atUserIds": [], "isAtAll": false }
-        }))
+        .json(&payload)
         .send()
         .await
-        .map_err(|e| format!("钉钉消息发送失败：{e}"))?;
+        .map_err(|_| interrupted("钉钉请求发送结果未知"))?;
     let status = response.status();
     let body: Value = response
         .json()
         .await
-        .map_err(|_| format!("钉钉响应格式无效（HTTP {}）", status.as_u16()))?;
+        .map_err(|_| interrupted("钉钉响应无法确认，发送结果未知"))?;
     let result: DingTalkResponse =
-        serde_json::from_value(body).map_err(|_| "钉钉响应字段无效".to_string())?;
+        serde_json::from_value(body).map_err(|_| interrupted("钉钉响应无法确认，发送结果未知"))?;
     if !status.is_success() || result.errcode != 0 {
-        return Err(format!(
-            "钉钉发送失败（HTTP {}，errcode={}）：{}",
-            status.as_u16(),
-            result.errcode,
-            result.errmsg
+        return Err(failed(
+            "DINGTALK_REJECTED",
+            &format!(
+                "钉钉明确拒绝请求（HTTP {}，errcode={}）",
+                status.as_u16(),
+                result.errcode
+            ),
         ));
     }
+    Ok(DingTalkReceipt {
+        http_status: status.as_u16(),
+        errcode: result.errcode,
+        message_type: message.format.clone(),
+    })
+}
+
+fn validate_message(message: &DingTalkMessage) -> Result<(), DispatchFailure> {
+    let content_length = message.title.chars().count() + message.body.chars().count();
+    if message.body.trim().is_empty() || content_length > MAX_MESSAGE_LENGTH {
+        return Err(failed(
+            "DINGTALK_MESSAGE_INVALID",
+            "消息正文不能为空且标题与正文合计不能超过 20000 个字符",
+        ));
+    }
+    if !matches!(message.format.as_str(), "text" | "markdown") {
+        return Err(failed("DINGTALK_FORMAT_INVALID", "钉钉消息格式无效"));
+    }
     Ok(())
+}
+
+fn message_payload(message: &DingTalkMessage) -> Value {
+    let at = json!({
+        "atMobiles": message.at_mobiles,
+        "atUserIds": [],
+        "isAtAll": message.at_all
+    });
+    if message.format == "markdown" {
+        return json!({
+            "msgtype": "markdown",
+            "markdown": { "title": message.title, "text": message.body },
+            "at": at
+        });
+    }
+    let content = if message.title.trim().is_empty() {
+        message.body.clone()
+    } else {
+        format!("{}\n{}", message.title, message.body)
+    };
+    json!({ "msgtype": "text", "text": { "content": content }, "at": at })
+}
+
+fn failed(code: &'static str, message: &str) -> DispatchFailure {
+    DispatchFailure {
+        kind: DispatchFailureKind::Failed,
+        code,
+        safe_message: message.into(),
+    }
+}
+
+fn interrupted(message: &str) -> DispatchFailure {
+    DispatchFailure {
+        kind: DispatchFailureKind::Interrupted,
+        code: "DINGTALK_RESULT_UNKNOWN",
+        safe_message: message.into(),
+    }
 }
 
 #[cfg(test)]
@@ -241,5 +345,28 @@ mod tests {
             url.query_pairs().filter(|(key, _)| key == "sign").count(),
             1
         );
+    }
+
+    #[test]
+    fn builds_text_and_markdown_payloads_without_credentials() {
+        let text = message_payload(&DingTalkMessage {
+            format: "text".into(),
+            title: "日报".into(),
+            body: "完成".into(),
+            at_all: false,
+            at_mobiles: vec!["13800138000".into()],
+        });
+        assert_eq!(text["text"]["content"], "日报\n完成");
+        assert!(text.to_string().find("access_token").is_none());
+
+        let markdown = message_payload(&DingTalkMessage {
+            format: "markdown".into(),
+            title: "日报".into(),
+            body: "# 完成".into(),
+            at_all: true,
+            at_mobiles: Vec::new(),
+        });
+        assert_eq!(markdown["msgtype"], "markdown");
+        assert_eq!(markdown["at"]["isAtAll"], true);
     }
 }

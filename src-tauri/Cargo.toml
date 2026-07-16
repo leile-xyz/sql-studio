@@ -1,6 +1,6 @@
 [package]
 name = "sql-studio"
-version = "1.0.0"
+version = "1.1.0"
 description = "基于 Archery 接口的可视化 SQL 客户端（Windows 桌面版）"
 edition = "2021"
 license = "MIT"
@@ -15,15 +15,27 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-dialog = "2"
+tauri-plugin-notification = "2.3.3"
 tauri-plugin-window-state = "2"
+tauri-plugin-single-instance = "2.4.3"
 reqwest = { version = "0.12", features = ["cookies", "json"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 keyring = { version = "3", features = ["windows-native"] }
-tokio = { version = "1", features = ["sync"] }
+tokio = { version = "1", features = ["sync", "time", "macros"] }
 hmac = "0.12"
 sha2 = "0.10"
 base64 = "0.22"
+rusqlite = { version = "0.37", features = ["bundled"] }
+uuid = { version = "1", features = ["v4"] }
+chrono = { version = "0.4", features = ["clock"] }
+chrono-tz = "0.10"
+cron = "0.15"
+ciborium = "0.2"
+sqlparser = "0.62"
+
+[dev-dependencies]
+tempfile = "3"
 
 [profile.release]
 strip = true
