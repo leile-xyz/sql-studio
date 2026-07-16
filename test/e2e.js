@@ -233,6 +233,12 @@ async function main() {
     });
     check('控制台禁止拖动选中文本触发浏览器搜索', editorDragPrevented);
     await page.click('[data-act="run-console"]');
+    const selectionDuringExecution = await page.locator('#edTa').evaluate(element => ({
+      focused: document.activeElement === element,
+      sql: element.value.slice(element.selectionStart, element.selectionEnd),
+    }));
+    check('控制台执行期间保留 SQL 选区高亮', selectionDuringExecution.focused
+      && selectionDuringExecution.sql === SELECTED_SQL, JSON.stringify(selectionDuringExecution));
     await page.waitForSelector('#conResults table.grid', { timeout: 8000 });
     const con = await page.textContent('#conResults');
     check('控制台选中 SQL 执行', con.includes('张三') && con.includes('已执行选中内容'), '');

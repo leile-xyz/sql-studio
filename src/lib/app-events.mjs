@@ -135,6 +135,13 @@ function bindClickEvents(options) {
   });
 }
 
+function bindEditorSelectionEvents() {
+  document.addEventListener('mousedown', event => {
+    if (event.button !== 0 || !event.target.closest('[data-act="run-console"]')) return;
+    if (document.activeElement?.dataset?.act === 'ed-input') event.preventDefault();
+  });
+}
+
 function bindInputEvents(options) {
   document.addEventListener('input', event => {
     const element = event.target.closest('[data-act]');
@@ -297,6 +304,7 @@ async function loadHoverMetadata(node, element, options) {
 }
 
 export function bindAppEvents(options) {
+  bindEditorSelectionEvents();
   bindClickEvents(options);
   bindContextMenuEvents(options);
   bindInputEvents(options);
