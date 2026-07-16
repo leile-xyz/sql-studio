@@ -15,17 +15,23 @@ async function loadVersion(options) {
 
 async function showStartupUpdate(options) {
   const version = await loadVersion(options);
-  if (version) options.toast(`SQL Studio 已更新到 v${version}：新增流水线编排、定时计划、执行历史和消息中心；支持插件通知与 SQL 强校验。`, 'ok');
+  if (!version) return;
+  byId('updateVersion').textContent = 'v' + version;
+  byId('updateMask').classList.add('show');
+  byId('updateClose').focus();
 }
 
 export function bindAboutDialog(options) {
   const mask = byId('aboutMask');
   const close = byId('aboutClose');
+  const updateMask = byId('updateMask');
+  const updateClose = byId('updateClose');
   byId('btnAbout').addEventListener('click', () => {
     mask.classList.add('show');
     close.focus();
     loadVersion(options);
   });
   close.addEventListener('click', () => mask.classList.remove('show'));
+  updateClose.addEventListener('click', () => updateMask.classList.remove('show'));
   showStartupUpdate(options);
 }

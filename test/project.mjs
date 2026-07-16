@@ -58,7 +58,7 @@ async function testVersionAndLicenseMetadata() {
 async function testAboutDialogMetadata() {
   const relativePath = 'src/index.html';
   const html = await readUtf8(relativePath);
-  for (const id of ['btnAbout', 'aboutMask', 'aboutTitle', 'aboutVersion', 'aboutClose']) {
+  for (const id of ['btnAbout', 'aboutMask', 'aboutTitle', 'aboutVersion', 'aboutClose', 'updateMask', 'updateTitle', 'updateVersion', 'updateClose']) {
     assert.ok(html.includes(`id="${id}"`), relativePath + ' missing ' + id);
   }
   assert.ok(html.includes('role="dialog"') && html.includes('aria-modal="true"'));
@@ -68,6 +68,7 @@ async function testAboutDialogMetadata() {
   assert.ok(!html.includes('项目定位'), relativePath + ' includes removed project positioning');
   assert.ok(!html.includes('<span class="k">隐私</span>'), relativePath + ' includes removed privacy entry');
   assert.ok(!html.includes('GitHub 仓库'), relativePath + ' includes removed repository entry');
+  assert.ok(html.includes('定时计划') && html.includes('消息中心'), relativePath + ' missing update log content');
 }
 
 async function testAppEntrypointStructure() {

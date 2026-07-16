@@ -249,6 +249,15 @@
   </div>
 </div>
 
+<!-- 更新日志弹窗 -->
+<div class="mask" id="updateMask">
+  <div class="modal update-modal" role="dialog" aria-modal="true" aria-labelledby="updateTitle">
+    <div class="update-head"><div class="update-icon">✓</div><div><h3 id="updateTitle">SQL Studio 已更新</h3><p>欢迎使用本次版本更新</p></div><span class="about-version" id="updateVersion">v1.1.0</span></div>
+    <div class="update-body"><p class="update-intro">本次更新带来更完整的流水线编排、调度和执行反馈能力。</p><ul class="update-list"><li><strong>流水线编排</strong><span>支持 SQL、消息构建和钉钉通知插件串联执行。</span></li><li><strong>定时计划</strong><span>支持按天、周、月或 Cron 配置计划，并展示下一次执行时间。</span></li><li><strong>执行反馈</strong><span>新增执行历史、执行详情和消息中心，集中查看运行结果。</span></li><li><strong>校验与体验</strong><span>保存时校验 SQL 语法并限制为单条查询，优化插件和弹窗交互。</span></li></ul></div>
+    <div class="btnrow update-actions"><button class="tbtn primary" id="updateClose" type="button">知道了</button></div>
+  </div>
+</div>
+
 <!-- 关于弹窗 -->
 <div class="mask" id="aboutMask">
   <div class="modal about-modal" role="dialog" aria-modal="true" aria-labelledby="aboutTitle">
