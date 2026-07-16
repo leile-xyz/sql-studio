@@ -16,6 +16,9 @@ async function loadVersion(options) {
 async function showStartupUpdate(options) {
   const version = await loadVersion(options);
   if (!version) return;
+  const seenKey = 'sql_studio_seen_update_version';
+  if (localStorage.getItem(seenKey) === version) return;
+  localStorage.setItem(seenKey, version);
   byId('updateVersion').textContent = 'v' + version;
   byId('updateMask').classList.add('show');
   byId('updateClose').focus();

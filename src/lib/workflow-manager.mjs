@@ -10,6 +10,7 @@ const esc = value => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&
 const optionHtml = (items, value, label) => items.map(item => `<option value="${esc(value(item))}">${esc(label(item))}</option>`).join('');
 const pluginDisplayName = node => node.pluginKey === 'dingtalk' ? '钉钉机器人消息' : node.pluginKey === 'message_builder' ? '消息内容编排' : node.name;
 const PLUGIN_PICKER_ORDER = Object.freeze({ message_builder: 0, dingtalk: 1 });
+const requiresPluginConfiguration = resource => resource.pluginKey === 'dingtalk';
 
 export function bindWorkflowManager({ api, toast, getAppState, workflows = workflowApi, schedules = workflowScheduleApi }) {
   bindMessageCenter({ toast });
@@ -39,6 +40,7 @@ export function bindWorkflowManager({ api, toast, getAppState, workflows = workf
   get('workflowAddPlugin').addEventListener('click', () => addPlugin(context));
   get('workflowPluginPickerClose').addEventListener('click', () => closePluginPicker(context));
   get('workflowPluginPickerList').addEventListener('click', event => choosePlugin(context, event));
+  window.addEventListener('dingtalk-config-updated', () => continueAfterPluginConfig(context));
   get('workflowList').addEventListener('click', event => selectWorkflow(context, event));
   get('workflowItemActions').addEventListener('click', event => runItemAction(context, event));
   get('workflowNodes').addEventListener('click', event => removeNode(context, event));
@@ -58,7 +60,7 @@ async function openManager(context) {
     const { activeEnvId } = context.getAppState();
     const [items, resources] = await Promise.all([context.workflows.list(activeEnvId), context.workflows.pluginResources()]);
     context.state.items = items || [];
-    context.state.resources = (resources || []).filter(resource => resource.enabled !== false && resource.configured);
+    context.state.resources = (resources || []).filter(resource => resource.enabled !== false);
     renderList(context);
   } catch (error) { context.toast('读取流水线失败：' + error.message, 'err'); }
 }
@@ -273,8 +275,18 @@ function addPlugin(context) {
     .sort((left, right) => (PLUGIN_PICKER_ORDER[left.pluginKey] ?? Number.MAX_SAFE_INTEGER) - (PLUGIN_PICKER_ORDER[right.pluginKey] ?? Number.MAX_SAFE_INTEGER));
   if (!available.length) { context.toast('没有可添加的插件资源', 'err'); return; }
   const list = context.get('workflowPluginPickerList');
-  list.innerHTML = available.map(resource => `<button class="workflow-plugin-option" type="button" data-plugin-id="${esc(resource.id)}"><span class="workflow-plugin-option-icon">${resource.pluginKey === 'dingtalk' ? '钉' : '✦'}</span><span><strong>${esc(resource.pluginKey === 'dingtalk' ? '钉钉机器人消息' : resource.pluginKey === 'message_builder' ? '消息内容编排' : resource.name)}</strong><small>${resource.category === 'sink' ? '消息推送 · 终止节点' : '数据加工 · 可继续追加'}</small></span><span class="workflow-plugin-option-arrow">›</span></button>`).join('');
+  list.innerHTML = available.map(renderPluginPickerOption).join('');
   context.get('workflowPluginMask').hidden = false;
+}
+
+function renderPluginPickerOption(resource) {
+  const name = resource.pluginKey === 'dingtalk' ? '钉钉机器人消息' : resource.pluginKey === 'message_builder' ? '消息内容编排' : resource.name;
+  const description = resource.category === 'sink' ? '消息推送 · 终止节点' : '数据加工 · 可继续追加';
+  const status = requiresPluginConfiguration(resource)
+    ? `<span class="workflow-plugin-option-status ${resource.configured ? 'configured' : ''}">${resource.configured ? '已配置' : '未配置'}</span>`
+    : '';
+  const optionClass = requiresPluginConfiguration(resource) ? '' : ' without-status';
+  return `<button class="workflow-plugin-option${optionClass}" type="button" data-plugin-id="${esc(resource.id)}"><span class="workflow-plugin-option-icon">${resource.pluginKey === 'dingtalk' ? '钉' : '✦'}</span><span><strong>${esc(name)}</strong><small>${description}</small></span>${status}<span class="workflow-plugin-option-arrow">›</span></button>`;
 }
 
 function choosePlugin(context, event) {
@@ -282,10 +294,27 @@ function choosePlugin(context, event) {
   if (!button) return;
   const resource = context.state.resources.find(item => item.id === button.dataset.pluginId);
   if (!resource) return;
+  if (requiresPluginConfiguration(resource) && !resource.configured) {
+    context.state.pendingPluginResourceId = resource.id;
+    closePluginPicker(context);
+    window.dispatchEvent(new CustomEvent('open-dingtalk-config'));
+    return;
+  }
   const nodes = Object.freeze([...context.state.draft.nodes, createPluginNode(resource, context.state.draft.nodes.length)]);
   context.state.draft = Object.freeze({ ...context.state.draft, nodes });
   closePluginPicker(context);
   renderNodes(context);
+}
+
+async function continueAfterPluginConfig(context) {
+  if (!context.state.pendingPluginResourceId) return;
+  const resourceId = context.state.pendingPluginResourceId;
+  context.state.pendingPluginResourceId = null;
+  const resources = await context.workflows.pluginResources();
+  context.state.resources = (resources || []).filter(resource => resource.enabled !== false);
+  if (!context.state.resources.some(resource => resource.id === resourceId && resource.configured)) return;
+  context.get('pluginMask').classList.remove('show');
+  addPlugin(context);
 }
 
 function closePluginPicker(context) { context.get('workflowPluginMask').hidden = true; }

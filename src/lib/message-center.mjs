@@ -7,6 +7,12 @@ const SEVERITY_META = Object.freeze({
   info: Object.freeze({ icon: 'i', label: '通知' }),
 });
 
+const MESSAGE_KIND_LABELS = Object.freeze({
+  workflow_execution: '流水线执行',
+  schedule_missed: '调度提醒',
+  system: '系统通知',
+});
+
 const escapeHtml = value => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
 function invoke(command, args = {}) {
@@ -25,7 +31,8 @@ export const messageApi = Object.freeze({
 
 export function bindMessageCenter({ toast, messages = messageApi }) {
   const get = id => document.getElementById(id);
-  const context = Object.freeze({ get, toast, messages });
+  const state = { items: [] };
+  const context = Object.freeze({ get, toast, messages, state });
   get('btnMessages').addEventListener('click', () => openCenter(context));
   get('messageClose').addEventListener('click', () => closeCenter(context));
   get('messageRefresh').addEventListener('click', () => loadMessages(context));
@@ -46,6 +53,7 @@ async function openCenter(context) {
 async function loadMessages(context) {
   try {
     const items = await context.messages.list() || [];
+    context.state.items = items;
     context.get('messageList').innerHTML = renderMessageList(items);
     context.get('messageListCount').textContent = `${items.length} 条通知`;
     await refreshUnread(context);
@@ -66,12 +74,26 @@ function formatMessageTime(value) {
 }
 
 export function renderMessageList(items) {
-  if (!items.length) return '<div class="message-empty"><span class="message-empty-icon">✓</span><strong>暂无通知</strong><p>新的流水线执行结果会显示在这里</p></div>';
+  if (!items.length) return '<div class="message-empty"><span class="message-empty-icon">✓</span><strong>暂无通知</strong><p>新的消息和流水线执行结果会显示在这里</p></div>';
   return items.map(item => {
     const severity = Object.hasOwn(SEVERITY_META, item.severity) ? item.severity : 'info';
     const meta = severityMeta(severity);
     return `<button type="button" class="message-item severity-${severity} ${item.readAt ? '' : 'unread'}" data-message-id="${escapeHtml(item.id)}" data-execution-id="${escapeHtml(item.executionId || '')}"><span class="message-severity" title="${meta.label}">${meta.icon}</span><span class="message-content"><span class="message-item-title"><strong>${escapeHtml(item.title)}</strong>${item.readAt ? '' : '<i>未读</i>'}</span><span>${escapeHtml(item.content || item.body || '')}</span><time datetime="${escapeHtml(item.createdAt)}">${escapeHtml(formatMessageTime(item.createdAt))}</time></span></button>`;
   }).join('');
+}
+
+function messageKindLabel(kind) {
+  return MESSAGE_KIND_LABELS[kind] || '普通通知';
+}
+
+export function renderMessageDetail(item, executionHtml = '') {
+  const severity = Object.hasOwn(SEVERITY_META, item.severity) ? item.severity : 'info';
+  const meta = severityMeta(severity);
+  const content = item.content || item.body || '此消息没有正文内容。';
+  const execution = item.executionId
+    ? `<section class="message-related-execution"><div class="message-detail-section-head"><strong>关联执行</strong><span>本消息对应的流水线执行记录</span></div>${executionHtml}</section>`
+    : '';
+  return `<article class="message-detail-card"><header><span class="message-detail-icon severity-${severity}">${meta.icon}</span><div><span>${escapeHtml(messageKindLabel(item.messageKind))}</span><h3>${escapeHtml(item.title || '未命名消息')}</h3></div></header><dl class="message-detail-meta"><div><dt>消息类型</dt><dd>${escapeHtml(messageKindLabel(item.messageKind))}</dd></div><div><dt>状态</dt><dd>${escapeHtml(meta.label)}</dd></div><div><dt>接收时间</dt><dd>${escapeHtml(formatMessageTime(item.createdAt))}</dd></div></dl><section class="message-detail-content"><strong>消息内容</strong><p>${escapeHtml(content)}</p></section></article>${execution}`;
 }
 
 async function refreshUnread(context) {
@@ -98,12 +120,20 @@ async function openMessage(context, event) {
     item.classList.add('active');
     item.querySelector('.message-item-title i')?.remove();
     await refreshUnread(context);
-    if (item.dataset.executionId) await showExecution(context, item.dataset.executionId);
+    const message = context.state.items.find(candidate => String(candidate.id) === item.dataset.messageId);
+    if (!message) throw new Error('未找到所选消息');
+    await showMessageDetail(context, message);
   } catch (error) { context.toast('打开通知失败：' + error.message, 'err'); }
 }
 
-async function showExecution(context, executionId) {
-  const detail = context.get('messageExecutionDetail');
-  detail.innerHTML = '<div class="message-empty"><span class="message-loading"></span><strong>正在读取执行详情</strong></div>';
-  detail.innerHTML = renderExecutionDetail(await context.messages.execution(executionId));
+async function showMessageDetail(context, message) {
+  const detail = context.get('messageDetail');
+  if (!message.executionId) {
+    detail.innerHTML = renderMessageDetail(message);
+    return;
+  }
+  const loading = '<div class="message-related-loading"><span class="message-loading"></span><span>正在读取关联执行…</span></div>';
+  detail.innerHTML = renderMessageDetail(message, loading);
+  const execution = renderExecutionDetail(await context.messages.execution(message.executionId));
+  detail.innerHTML = renderMessageDetail(message, execution);
 }

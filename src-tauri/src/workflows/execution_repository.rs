@@ -58,22 +58,6 @@ pub fn create_manual(
     })
 }
 
-pub fn claim(connection: &mut Connection, execution_id: &str, node_id: &str) -> Result<(), String> {
-    let tx = connection
-        .transaction_with_behavior(TransactionBehavior::Immediate)
-        .map_err(db)?;
-    let now = now();
-    let changed=tx.execute("UPDATE workflow_executions SET status='running',started_at=?1 WHERE id=?2 AND status='pending' AND NOT EXISTS (SELECT 1 FROM workflow_executions active WHERE active.workflow_id=workflow_executions.workflow_id AND active.status='running')",params![now,execution_id]).map_err(db)?;
-    if changed != 1 {
-        return Err("执行记录已被领取或状态无效".into());
-    }
-    let node_changed=tx.execute("UPDATE node_executions SET status='running',started_at=?1,updated_at=?1 WHERE id=?2 AND execution_id=?3 AND status='pending'",params![now,node_id,execution_id]).map_err(db)?;
-    if node_changed != 1 {
-        return Err("SQL 节点状态无效".into());
-    }
-    tx.commit().map_err(db)
-}
-
 pub fn complete_sql(
     connection: &mut Connection,
     execution_id: &str,
@@ -337,7 +321,7 @@ fn db(e: rusqlite::Error) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::WorkflowDb;
+    use crate::{storage::WorkflowDb, workflows::schedule_repository};
 
     fn database() -> (tempfile::TempDir, WorkflowDb) {
         let dir = tempfile::tempdir().unwrap();
@@ -355,22 +339,24 @@ mod tests {
         (dir, db)
     }
 
+    fn claim_next(db: &WorkflowDb) -> schedule_repository::ClaimedExecution {
+        schedule_repository::claim_next_pending(&mut db.open_connection().unwrap(), &now())
+            .unwrap()
+            .unwrap()
+    }
+
     #[test]
-    fn creates_records_and_claims_only_once() {
+    fn creates_records_and_queue_claims_only_once() {
         let (_dir, db) = database();
         let created = create_manual(&mut db.open_connection().unwrap(), "w").unwrap();
-        claim(
+        let claimed = claim_next(&db);
+        assert_eq!(claimed.execution_id, created.id);
+        assert!(schedule_repository::claim_next_pending(
             &mut db.open_connection().unwrap(),
-            &created.id,
-            &created.sql_node_id,
+            &now()
         )
-        .unwrap();
-        assert!(claim(
-            &mut db.open_connection().unwrap(),
-            &created.id,
-            &created.sql_node_id
-        )
-        .is_err());
+        .unwrap()
+        .is_none());
         let detail = detail(&db.open_connection().unwrap(), &created.id)
             .unwrap()
             .0;
@@ -382,12 +368,7 @@ mod tests {
     fn startup_marks_running_execution_interrupted() {
         let (_dir, db) = database();
         let created = create_manual(&mut db.open_connection().unwrap(), "w").unwrap();
-        claim(
-            &mut db.open_connection().unwrap(),
-            &created.id,
-            &created.sql_node_id,
-        )
-        .unwrap();
+        claim_next(&db);
         assert_eq!(
             interrupt_running(&mut db.open_connection().unwrap()).unwrap(),
             1
@@ -402,12 +383,7 @@ mod tests {
     fn failure_creates_one_deduplicated_application_message() {
         let (_dir, db) = database();
         let created = create_manual(&mut db.open_connection().unwrap(), "w").unwrap();
-        claim(
-            &mut db.open_connection().unwrap(),
-            &created.id,
-            &created.sql_node_id,
-        )
-        .unwrap();
+        claim_next(&db);
         fail(
             &mut db.open_connection().unwrap(),
             &created.id,

@@ -13,6 +13,12 @@ export function bindPluginManager({ api, toast }) {
   get('dingtalkSave').addEventListener('click', () => saveConfig({ api, toast, get }));
   get('dingtalkDelete').addEventListener('click', () => deleteConfig({ api, toast, get }));
   get('dingtalkTest').addEventListener('click', () => sendTest({ api, toast, get }));
+  window.addEventListener('open-dingtalk-config', async () => {
+    clearForm(get);
+    showDetail(get);
+    get('pluginMask').classList.add('show');
+    await loadStatus({ api, get });
+  });
 }
 
 async function loadStatus({ api, get }) {
@@ -63,6 +69,7 @@ async function saveConfig({ api, toast, get }) {
     toast('钉钉机器人配置已安全保存', 'ok');
     clearSecrets(get);
     await loadStatus({ api, get });
+    window.dispatchEvent(new CustomEvent('dingtalk-config-updated'));
   } catch (error) {
     get('dingtalkErr').textContent = error.message;
   }
