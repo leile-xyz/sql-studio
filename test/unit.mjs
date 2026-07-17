@@ -856,7 +856,7 @@ function testContextAwareAutocompletePriority() {
 }
 
 function testConsoleQueryPagination() {
-  assert.equal(DEFAULT_CONSOLE_PAGE_SIZE, 1000);
+  assert.equal(DEFAULT_CONSOLE_PAGE_SIZE, 100);
   assert.deepEqual(PAGE_SIZE_OPTIONS, [20, 50, 100, 200, 500, 1000]);
   assert.ok(Object.isFrozen(PAGE_SIZE_OPTIONS));
   for (const sql of [

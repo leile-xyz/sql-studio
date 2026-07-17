@@ -1,4 +1,4 @@
-import { buildConsolePageSql, DEFAULT_CONSOLE_PAGE_SIZE } from './console-query.mjs';
+import { buildConsolePageSql } from './console-query.mjs';
 import { countConsoleRows } from './console-execution.mjs';
 import { buildBrowseSql, buildCountSql, parseCountTotal } from './db-context.mjs';
 import { collectPagedRows } from './paged-export.mjs';
@@ -56,7 +56,7 @@ export async function collectConsoleExport(options) {
   const totalRows = await countConsoleRows({ api: options.api, origin: options.origin, result });
   const collected = await collectPagedRows({
     totalRows,
-    pageSize: DEFAULT_CONSOLE_PAGE_SIZE,
+    pageSize: DEFAULT_EXPORT_PAGE_SIZE,
     columns: result.columns,
     fetchPage: async request => options.api.query(options.origin, {
       ...result.context,

@@ -68,7 +68,7 @@ SQL Studio `main` 分支是 Windows 桌面应用，不增加自有服务端。We
 
 ## 控制台分页与全量导出
 
-没有顶层 `LIMIT`、`OFFSET` 或 `FETCH` 的普通 SELECT 和只读查询型 CTE 会自动分页：MySQL SQL 追加 `LIMIT/OFFSET`，PostgreSQL SQL 只追加 `OFFSET`，页大小通过 Archery 的 `limit_num` 传递，避免服务端再次追加 `LIMIT` 后形成重复语法。默认每页 1000 条，并通过派生表 COUNT 查询精确总数。每个多 SQL 结果页签独立保存执行时的实例、数据库、schema、页码和页大小；翻页只重查当前结果，并同步刷新 COUNT。数据修改 CTE、锁定查询、`SELECT INTO`、DML、DDL 以及用户自行分页的 SQL 保持单次执行，避免自动重查产生副作用。
+没有顶层 `LIMIT`、`OFFSET` 或 `FETCH` 的普通 SELECT 和只读查询型 CTE 会自动分页：MySQL SQL 追加 `LIMIT/OFFSET`，PostgreSQL SQL 只追加 `OFFSET`，页大小通过 Archery 的 `limit_num` 传递，避免服务端再次追加 `LIMIT` 后形成重复语法。默认每页 100 条，并通过派生表 COUNT 查询精确总数。每个多 SQL 结果页签独立保存执行时的实例、数据库、schema、页码和页大小；翻页只重查当前结果，并同步刷新 COUNT。数据修改 CTE、锁定查询、`SELECT INTO`、DML、DDL 以及用户自行分页的 SQL 保持单次执行，避免自动重查产生副作用。
 
 表数据和可分页控制台结果导出前会重新执行 COUNT，再按 1000 条逐页读取。收集器严格校验每页行数、列顺序和行宽；任一请求失败或最终行数与 COUNT 不一致时直接终止并显示错误。表元数据包含主键时，导出排序会把尚未包含的主键列追加为稳定排序键。
 

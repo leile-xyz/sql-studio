@@ -1,6 +1,6 @@
 import { isPostgresType } from './db-context.mjs';
 
-export const DEFAULT_CONSOLE_PAGE_SIZE = 1000;
+export const DEFAULT_CONSOLE_PAGE_SIZE = 100;
 export const PAGE_SIZE_OPTIONS = Object.freeze([20, 50, 100, 200, 500, 1000]);
 
 const MAIN_STATEMENT_KEYWORDS = Object.freeze(new Set([

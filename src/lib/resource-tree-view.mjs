@@ -70,26 +70,49 @@ function renderTableNodes(nodeMap, container, depth) {
   return html;
 }
 
-function renderSearch(tree, filter) {
+function renderSearch(tree, filter, nodeMap, loading, searchError) {
   const matches = [];
+  const errors = searchError ? [searchError] : [];
   for (const instance of tree) {
-    if (!instance.dbs) continue;
+    if (!instance.dbs) {
+      if (instance.error) errors.push(instance.name + '：' + instance.error);
+      continue;
+    }
     for (const database of instance.dbs) {
+      if (database.error) errors.push(database.name + '：' + database.error);
+      if (database.name.toLowerCase().includes(filter)) matches.push({ kind: 'database', node: database, context: instance.name });
       const containers = isPostgresType(database.dbType) ? (database.schemas || []) : [database];
       for (const container of containers) {
-        if (!container.tables) continue;
+        if (!container.tables) {
+          if (container.error) errors.push(container.name + '：' + container.error);
+          continue;
+        }
         for (const table of container.tables) {
-          if (table.name.toLowerCase().includes(filter)) matches.push(table);
+          if (table.name.toLowerCase().includes(filter)) matches.push({ kind: 'table', node: table });
         }
       }
     }
   }
-  if (!matches.length) return '<div class="tree-msg">已加载的表中无匹配（仅搜索已展开加载的库）</div>';
+  if (!matches.length && loading) return '<div class="tree-msg"><span class="spinner" style="display:inline-block;vertical-align:-4px"></span> 正在加载数据库和数据表…</div>';
+  const errorHtml = errors.length ? `<div class="tree-msg">资源加载失败：${escapeHtml(errors.join('；'))}</div>` : '';
+  if (!matches.length) return errorHtml + '<div class="tree-msg">数据库和数据表中无匹配</div>';
   const pattern = new RegExp('(' + filter.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'i');
-  return matches.map(table => {
-    const label = escapeHtml(table.name).replace(pattern, '<mark>$1</mark>');
-    const context = table.schema ? table.db + '.' + table.schema : table.db;
-    return `<div class="tnode" style="padding-left:12px" data-act="open-table" data-uid="${table.uid}"><span class="twist leaf"></span><span class="c-table">${ICO.table}</span><span>${label}</span><span class="typ">${escapeHtml(context)}</span></div>`;
+  return errorHtml + matches.map(match => {
+    const node = match.node;
+    const label = escapeHtml(node.name).replace(pattern, '<mark>$1</mark>');
+    if (match.kind === 'database') return rowHtml({
+      nodeMap,
+      depth: 0,
+      uid: node.uid,
+      twist: true,
+      busy: node.loading,
+      icon: `<span class="c-db">${ICO.db}</span>`,
+      label,
+      extra: `<span class="typ">${escapeHtml(match.context)}</span>`,
+      data: `title="${escapeAttribute(match.context)}"`,
+    });
+    const context = node.schema ? node.db + '.' + node.schema : node.db;
+    return `<div class="tnode" style="padding-left:12px" data-act="open-table" data-uid="${node.uid}"><span class="twist leaf"></span><span class="c-table">${ICO.table}</span><span>${label}</span><span class="typ">${escapeHtml(context)}</span></div>`;
   }).join('');
 }
 
@@ -101,7 +124,7 @@ export function renderResourceTree(options) {
     const error = options.errorMessage ? '连接失败：' + escapeHtml(options.errorMessage) + '<br><br>' : '';
     return `<div class="tree-msg">${error}未连接到 <b>${escapeHtml(options.envName)}</b>。<br><a data-act="relogin">点此登录</a></div>`;
   }
-  if (options.filter) return renderSearch(options.tree, options.filter);
+  if (options.filter) return renderSearch(options.tree, options.filter, options.nodeMap, options.searchLoading, options.searchError);
   const selection = options.selection;
   let html = '';
   for (const instance of options.tree) {

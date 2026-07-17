@@ -32,15 +32,15 @@ async function testConsoleExecutionAndPaging() {
   context.db = 'changed';
   assert.equal(result.ok, true);
   assert.equal(result.pageable, true);
-  assert.equal(result.pageSize, 1000);
-  assert.equal(result.rows.length, 1000);
+  assert.equal(result.pageSize, 100);
+  assert.equal(result.rows.length, 100);
   assert.equal(result.totalRows, 2501);
-  assert.equal(result.pageCount, 3);
+  assert.equal(result.pageCount, 26);
   assert.equal(result.context.db, 'db');
   assert.equal(calls.length, 2);
   assert.match(calls[0].sql, /OFFSET 0$/);
   assert.doesNotMatch(calls[0].sql, /LIMIT/i);
-  assert.equal(calls[0].limit, 1000);
+  assert.equal(calls[0].limit, 100);
   assert.match(calls[1].sql, /SELECT COUNT\(\*\) AS total/);
 
   const thirdPage = await fetchConsolePage({ api, origin: 'http://archery', result, page: 3, pageSize: 1000 });
@@ -77,7 +77,7 @@ async function testTableConsoleSqlKeepsAutomaticPagination() {
   });
   assert.equal(result.pageable, true);
   assert.equal(result.totalRows, 2501);
-  assert.equal(result.pageCount, 3);
+  assert.equal(result.pageCount, 26);
   assert.equal(calls.length, 2);
 }
 
@@ -109,7 +109,7 @@ async function testConsoleCountFailureAndExplicitLimit() {
   });
   assert.equal(limited.pageable, false);
   assert.equal(calls.length, 1);
-  assert.equal(calls[0].limit, 1000);
+  assert.equal(calls[0].limit, 100);
 }
 
 async function testFullExports() {

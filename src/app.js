@@ -12,6 +12,7 @@ import { renderConsoleResultView } from './lib/console-result-view.mjs';
 import { createCsvExportActions } from './lib/csv-export-actions.mjs';
 import { saveCsvText } from './lib/csv-save.mjs';
 import { renderResourceTree } from './lib/resource-tree-view.mjs';
+import { createResourceTreeSearch } from './lib/resource-tree-search.mjs';
 import { renderTableView, resolveTableSubview } from './lib/table-view.mjs';
 import { buildBrowseSql, buildCountSql, findDbType, isPostgresType, parseCountTotal } from './lib/db-context.mjs';
 import { renderTabBarView, showAllConsolesMenu, showConsoleMenu, showTabContextMenu } from './lib/console-menu-view.mjs';
@@ -79,7 +80,7 @@ function bindStatic() {
   $('btnCollapse').addEventListener('click', collapseAll);
   $('btnSidebarCollapse').addEventListener('click', () => setSidebarCollapsed(true));
   $('btnSidebarExpand').addEventListener('click', () => setSidebarCollapsed(false));
-  $('treeSearch').addEventListener('input', renderTree);
+  $('treeSearch').addEventListener('input', treeSearch.search);
   $('loginEnv').addEventListener('change', onLoginEnvChange);
   $('loginScheme').addEventListener('change', updateLoginEnvUrl);
   $('loginBase').addEventListener('input', updateLoginEnvUrl);
@@ -101,7 +102,6 @@ function bindStatic() {
   document.querySelectorAll('.mask').forEach(m =>
     m.addEventListener('click', e => { if (e.target === m) closeModal(m.id); }));
 }
-
 /* ================= 环境 ================= */
 async function applyEnv(id) {
   await consoleSessionManager.flush();
@@ -470,11 +470,16 @@ function renderTree(errMsg) {
     errorMessage: typeof errMsg === 'string' ? errMsg : '',
     envName: state.env ? state.env.name : '',
     filter,
+    ...treeSearch.viewState(),
     tree: state.tree,
     nodeMap: state.nodeMap,
     selection: state.treeSel,
   });
 }
+const treeSearch = createResourceTreeSearch({
+  getFilter: () => $('treeSearch').value.trim(), getTree: () => state.tree, getOrigin: () => state.origin,
+  isPostgres: isPostgresType, loadDbs, loadSchemas, loadTables, render: renderTree,
+});
 function toggleFolder(uid, fold) {
   const tb = state.nodeMap.get(uid);
   if (tb && tb.open) { tb.open[fold] = !tb.open[fold]; renderTree(); }
@@ -684,7 +689,6 @@ async function ensureData(tab) {
   if (curTab() === tab) renderBody();
 }
 function reloadData(tab) { tab.data = null; ensureData(tab); }
-
 function renderTableTab(tab, body) {
   const subview = resolveTableSubview(tab);
   if (tab.subview !== subview) tab.subview = subview;
@@ -880,7 +884,6 @@ function persistConsoleSession() {
     nextSequence: state.consoleSeq,
   }));
 }
-
 function changeConsoleInstance(tab, instance) {
   tab.instance = instance;
   tab.dbType = findDbType(state.instances, instance);
@@ -892,7 +895,6 @@ function changeConsoleInstance(tab, instance) {
   scheduleConsoleSession(tab);
   loadConsoleDbs(tab);
 }
-
 function changeConsoleDatabase(tab, db) {
   tab.db = db;
   tab.schema = '';
@@ -906,13 +908,11 @@ function changeConsoleDatabase(tab, db) {
     syncTreeToConsole(tab);
   }
 }
-
 function changeConsoleSchema(tab, schema) {
   tab.schema = schema;
   scheduleConsoleSession(tab);
   syncTreeToConsole(tab);
 }
-
 function reportConsoleSessionError(error) { console.error('[SQL Studio] 控制台会话保存失败', error); toast('控制台内容保存失败：' + error.message, 'err'); }
 /* ================= 事件委托 ================= */
 function bindDelegation() {
@@ -961,7 +961,6 @@ function bindDelegation() {
     onHoverError: error => console.error('[SQL Studio] 表结构预取失败', error),
   });
 }
-
 function applyWhere(tab) {
   const input = document.querySelector('[data-act=where-input]');
   if (!tab || !input) return;
