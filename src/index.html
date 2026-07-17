@@ -61,6 +61,7 @@
         <div class="workflow-section"><h4>基本信息</h4><div class="workflow-grid two"><label>名称<input id="workflowName" autocomplete="off" maxlength="100" required></label><label>描述<input id="workflowDescription" autocomplete="off" maxlength="500"></label></div></div>
         <div class="workflow-section"><h4>数据源</h4><div class="workflow-grid four without-schema"><label>当前环境<select id="workflowEnvironment" disabled></select></label><label>实例<select id="workflowInstance"></select></label><label>数据库<select id="workflowDatabase"></select></label><label id="workflowSchemaField" hidden>模式<select id="workflowSchema"></select></label></div><div class="err-line" id="workflowSourceError"></div></div>
         <div class="workflow-section"><div class="workflow-section-head"><h4>执行节点</h4><div class="workflow-node-actions"><button class="tbtn" type="button" id="workflowAddPlugin">添加插件</button><button class="tbtn primary" type="button" id="workflowRun">手动执行</button></div></div><div class="workflow-nodes" id="workflowNodes"></div></div>
+        <div class="workflow-savebar"><button class="tbtn" type="button" id="workflowCancelEdit">取消</button><button class="tbtn" type="button" id="workflowSave">保存草稿</button><button class="tbtn primary" type="button" id="workflowPublish">保存并发布</button></div>
         <div class="workflow-section workflow-schedule-section">
           <div class="workflow-section-head"><div><h4>定时计划</h4><span>按计划运行已发布版本，错过的计划不会补跑。</span></div><span class="workflow-schedule-badge" id="workflowScheduleStatus">未配置</span></div>
           <div class="workflow-schedule-unavailable" id="workflowScheduleUnavailable">保存并发布流水线后可配置定时计划。</div>
@@ -73,7 +74,7 @@
             </div>
             <div class="workflow-schedule-config">
               <div class="workflow-schedule-simple" id="workflowScheduleSimple">
-                <label class="workflow-schedule-time">执行时间<input type="time" id="workflowScheduleTime" value="09:00" required></label>
+                <label class="workflow-schedule-time">执行时间<span class="workflow-time-picker"><span class="workflow-time-icon" aria-hidden="true">◷</span><span class="workflow-time-select" data-time-part="hour"><button class="workflow-time-trigger" id="workflowScheduleHour" type="button" aria-haspopup="listbox" aria-expanded="false"><span>09</span><i>⌄</i></button><span class="workflow-time-menu" id="workflowScheduleHourMenu" role="listbox" hidden></span></span><span class="workflow-time-separator">:</span><span class="workflow-time-select" data-time-part="minute"><button class="workflow-time-trigger" id="workflowScheduleMinute" type="button" aria-haspopup="listbox" aria-expanded="false"><span>00</span><i>⌄</i></button><span class="workflow-time-menu" id="workflowScheduleMinuteMenu" role="listbox" hidden></span></span></span></label>
                 <fieldset class="workflow-schedule-weekdays" id="workflowScheduleWeekdays" hidden><legend>执行日期</legend><label><input type="checkbox" value="1" checked><span>一</span></label><label><input type="checkbox" value="2"><span>二</span></label><label><input type="checkbox" value="3"><span>三</span></label><label><input type="checkbox" value="4"><span>四</span></label><label><input type="checkbox" value="5"><span>五</span></label><label><input type="checkbox" value="6"><span>六</span></label><label><input type="checkbox" value="0"><span>日</span></label></fieldset>
                 <label class="workflow-schedule-month" id="workflowScheduleMonth" hidden>每月日期<input type="number" id="workflowScheduleMonthDay" min="1" max="31" value="1"></label>
               </div>
@@ -92,7 +93,6 @@
           </div>
         </div>
         <div class="workflow-section workflow-history-section" id="workflowHistorySection"><div class="workflow-section-head"><div><h4>执行历史</h4><span>查看已保存流水线的运行记录与执行产物。</span></div><button class="icon-btn" type="button" id="workflowHistoryRefresh" title="刷新执行历史">⟳</button></div><div class="workflow-history"><div class="workflow-history-list" id="workflowHistoryList"></div><div class="workflow-history-detail" id="workflowHistoryDetail"></div></div></div>
-        <div class="workflow-savebar"><button class="tbtn" type="button" id="workflowCancelEdit">取消</button><button class="tbtn" type="button" id="workflowSave">保存草稿</button><button class="tbtn primary" type="button" id="workflowPublish">保存并发布</button></div>
       </form>
     </main>
   </div>

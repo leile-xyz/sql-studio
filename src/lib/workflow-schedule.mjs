@@ -96,6 +96,7 @@ export function buildScheduleExpression({ mode, time, weekdays = [], monthDay, c
 export function bindWorkflowSchedule({ get, toast, onChanged, api = workflowScheduleApi }) {
   const state = { workflow: null, schedule: null, loading: false, loadFailed: false, requestId: 0 };
   const context = Object.freeze({ get, toast, onChanged, api, state });
+  initializeTimePicker(context);
   get('workflowScheduleSave').addEventListener('click', () => saveSchedule(context));
   get('workflowScheduleDelete').addEventListener('click', () => deleteSchedule(context));
   get('workflowScheduleEnabled').addEventListener('change', () => toggleSchedule(context));
@@ -103,6 +104,79 @@ export function bindWorkflowSchedule({ get, toast, onChanged, api = workflowSche
     input.addEventListener('change', () => renderScheduleMode(context));
   });
   return Object.freeze({ load: workflow => loadSchedule(context, workflow), clear: () => clearSchedule(context) });
+}
+
+function initializeTimePicker(context) {
+  populateTimeMenu(context.get('workflowScheduleHourMenu'), 24);
+  populateTimeMenu(context.get('workflowScheduleMinuteMenu'), 60);
+  context.get('workflowScheduleHour').addEventListener('click', () => toggleTimeMenu(context, 'hour'));
+  context.get('workflowScheduleMinute').addEventListener('click', () => toggleTimeMenu(context, 'minute'));
+  context.get('workflowScheduleHourMenu').addEventListener('click', event => selectTimeValue(context, event));
+  context.get('workflowScheduleMinuteMenu').addEventListener('click', event => selectTimeValue(context, event));
+  document.addEventListener('click', event => {
+    if (!event.target.closest('.workflow-time-picker')) closeTimeMenus(context);
+  });
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape') closeTimeMenus(context);
+  });
+  setTimePickerValue(context, '09:00');
+}
+
+function populateTimeMenu(menu, count) {
+  menu.innerHTML = Array.from({ length: count }, (_, value) => {
+    const label = String(value).padStart(2, '0');
+    return `<button type="button" role="option" data-time-value="${label}">${label}</button>`;
+  }).join('');
+}
+
+function toggleTimeMenu(context, part) {
+  const trigger = context.get(part === 'hour' ? 'workflowScheduleHour' : 'workflowScheduleMinute');
+  const menu = context.get(part === 'hour' ? 'workflowScheduleHourMenu' : 'workflowScheduleMinuteMenu');
+  const opening = menu.hidden;
+  closeTimeMenus(context);
+  if (!opening) return;
+  menu.hidden = false;
+  trigger.setAttribute('aria-expanded', 'true');
+  requestAnimationFrame(() => menu.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'center' }));
+}
+
+function selectTimeValue(context, event) {
+  const option = event.target.closest('[data-time-value]');
+  if (!option) return;
+  const part = option.closest('[data-time-part]').dataset.timePart;
+  setTimePart(context, part, option.dataset.timeValue);
+  closeTimeMenus(context);
+  context.get(part === 'hour' ? 'workflowScheduleHour' : 'workflowScheduleMinute').focus();
+}
+
+function closeTimeMenus(context) {
+  ['Hour', 'Minute'].forEach(part => {
+    context.get(`workflowSchedule${part}Menu`).hidden = true;
+    context.get(`workflowSchedule${part}`).setAttribute('aria-expanded', 'false');
+  });
+}
+
+function setTimePart(context, part, value) {
+  const suffix = part === 'hour' ? 'Hour' : 'Minute';
+  const trigger = context.get(`workflowSchedule${suffix}`);
+  const menu = context.get(`workflowSchedule${suffix}Menu`);
+  trigger.dataset.value = value;
+  trigger.querySelector('span').textContent = value;
+  menu.querySelectorAll('[data-time-value]').forEach(option => {
+    option.setAttribute('aria-selected', String(option.dataset.timeValue === value));
+  });
+}
+
+function setTimePickerValue(context, time) {
+  const [hour = '09', minute = '00'] = String(time).split(':');
+  setTimePart(context, 'hour', hour);
+  setTimePart(context, 'minute', minute);
+}
+
+function getTimePickerValue(context) {
+  const hour = context.get('workflowScheduleHour').dataset.value;
+  const minute = context.get('workflowScheduleMinute').dataset.value;
+  return `${hour}:${minute}`;
 }
 
 async function loadSchedule(context, workflow) {
@@ -163,7 +237,7 @@ function setScheduleFields(context, schedule) {
   context.get('workflowScheduleCron').value = expression;
   const mode = document.querySelector(`input[name="workflowScheduleMode"][value="${parsed.mode}"]`);
   if (mode) mode.checked = true;
-  if (parsed.time) context.get('workflowScheduleTime').value = parsed.time;
+  if (parsed.time) setTimePickerValue(context, parsed.time);
   context.get('workflowScheduleMonthDay').value = String(parsed.monthDay || 1);
   const selectedDays = new Set(parsed.weekdays || []);
   context.get('workflowScheduleWeekdays').querySelectorAll('input').forEach(input => {
@@ -195,7 +269,7 @@ function collectScheduleInput(context) {
     workflowId: context.state.workflow?.id,
     cronExpression: buildScheduleExpression({
       mode, weekdays, monthDay: context.get('workflowScheduleMonthDay').value,
-      time: context.get('workflowScheduleTime').value,
+      time: getTimePickerValue(context),
       cronExpression: context.get('workflowScheduleCron').value,
     }),
     timezone: context.get('workflowScheduleTimezone').value,
