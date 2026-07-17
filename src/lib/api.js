@@ -5,12 +5,7 @@
  */
 import { parseTableDescription } from './ddl.js';
 import { validateQueryLimit, validateQueryRows } from './query-row-limit.mjs';
-
-function invoke(cmd, args) {
-    return window.__TAURI__.core.invoke(cmd, args).catch(e => {
-        throw new Error(typeof e === 'string' ? e : (e && e.message) || '请求失败');
-    });
-}
+import { invoke } from './host.mjs';
 
 const get = (origin, path) => invoke('api_get', { origin, path });
 const post = (origin, path, form) => invoke('api_post', { origin, path, form });
@@ -87,5 +82,14 @@ export const api = {
         };
     },
     /** CSV 导出：原生另存为对话框；resolve true=已保存 / false=用户取消 */
-    exportCsv: (defaultName, content) => invoke('export_csv', { defaultName, content })
+    exportCsv: (defaultName, content) => downloadCsv(defaultName, content)
 };
+
+function downloadCsv(defaultName, content) {
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(new Blob([content], { type: 'text/csv;charset=utf-8' }));
+    link.download = `${defaultName}.csv`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+    return Promise.resolve(true);
+}

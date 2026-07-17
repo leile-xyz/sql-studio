@@ -26,6 +26,7 @@
   <button class="icon-btn" id="btnEnvMgr" title="环境管理">⚙</button>
   <button class="icon-btn" id="btnRelogin" title="重新登录">⇄</button>
   <button class="icon-btn" id="btnAbout" type="button" title="关于 SQL Studio" aria-label="关于 SQL Studio">ⓘ</button>
+  <button class="icon-btn" id="btnExit" type="button" title="退出本地服务" aria-label="退出本地服务">⏻</button>
 </div>
 <div class="menu" id="envMenu"></div>
 <div class="menu console-menu" id="consoleMenu"></div>
@@ -143,7 +144,7 @@
     </div>
     <div class="about-body">
       <div class="about-meta">
-        <span class="k">客户端</span><span class="v">Windows 桌面端 · Tauri 2</span>
+        <span class="k">客户端</span><span class="v">Windows 桌面端 · 浏览器模式</span>
         <span class="k">作者</span><span class="v">fanzhibiao</span>
         <span class="k">许可证</span><span class="v">MIT License</span>
       </div>
@@ -159,14 +160,8 @@
 <script>
 (function () {
   function write(level, message) {
-    try {
-      var tauri = window.__TAURI__;
-      if (!tauri || !tauri.core || typeof tauri.core.invoke !== 'function') return;
-      tauri.core.invoke('frontend_log', {
-        level: String(level),
-        message: String(message)
-      }).catch(function () {});
-    } catch (_) {}
+    var method = console[level] || console.log;
+    method.call(console, '[SQL Studio]', String(message));
   }
   window.__SQL_STUDIO_STARTUP_LOG__ = write;
   window.addEventListener('error', function (event) {

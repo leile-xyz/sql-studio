@@ -224,20 +224,17 @@ async function testDesktopApiSchemaRequests() {
     column_list: ['column_name', 'data_type', 'is_nullable'],
     rows: [['id', 'uuid', 'NO']],
   };
-  globalThis.window = {
-    __TAURI__: {
-      core: {
-        invoke: async (command, args) => {
-          calls.push({ command, args });
-          if (command === 'api_get') return args.path.includes('resource_type=schema') ? ['public'] : ['account_integrates'];
-          if (command === 'api_post' && args.path === '/instance/describetable/') return pgDescription;
-          if (command === 'api_post' && args.path === '/query/') {
-            return { column_list: ['id'], column_type: [], rows: [], full_sql: args.form.sql_content };
-          }
-          return null;
-        },
-      },
-    },
+  globalThis.window = { location: { search: '?token=test' } };
+  globalThis.fetch = async (_url, options) => {
+    const request = JSON.parse(options.body);
+    const command = request.command;
+    const args = request.args;
+    calls.push({ command, args });
+    let value = null;
+    if (command === 'api_get') value = args.path.includes('resource_type=schema') ? ['public'] : ['account_integrates'];
+    if (command === 'api_post' && args.path === '/instance/describetable/') value = pgDescription;
+    if (command === 'api_post' && args.path === '/query/') value = { column_list: ['id'], column_type: [], rows: [], full_sql: args.form.sql_content };
+    return { ok: true, status: 200, json: async () => ({ ok: true, value }) };
   };
   try {
     const { api } = await import('../src/lib/api.js?schema-contract');
@@ -260,6 +257,7 @@ async function testDesktopApiSchemaRequests() {
     });
   } finally {
     delete globalThis.window;
+    delete globalThis.fetch;
   }
   const tableCall = calls.find(call => call.command === 'api_get' && call.args.path.includes('resource_type=table'));
   assert.ok(tableCall.args.path.includes('schema_name=public'));

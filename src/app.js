@@ -16,6 +16,7 @@ import { loadTableData, prepareTableDataQuery } from './lib/table-data-loader.mj
 import { renderTabBarView, showAllConsolesMenu, showConsoleMenu, showTabContextMenu } from './lib/console-menu-view.mjs';
 import { ConsoleRenameController } from './lib/console-rename.mjs';
 import { closeWorkspaceTabs, consoleSessionState, createNewConsole, defaultConsoleTab, deleteWorkspaceConsole, restoreConsoleWorkspace } from './lib/console-workspace.mjs';
+import { stopLocalService } from './lib/host.mjs';
 const startupLog = (level, message) => window.__SQL_STUDIO_STARTUP_LOG__?.(level, message);
 startupLog('info', 'frontend app module evaluated');
 const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -96,6 +97,11 @@ function bindStatic() {
   $('envAdd').addEventListener('click', addEnvRow);
   $('envMgrCancel').addEventListener('click', () => closeModal('envMgrMask'));
   $('envMgrSave').addEventListener('click', saveEnvMgr);
+  $('btnExit').addEventListener('click', async () => {
+    if (!window.confirm('退出 SQL Studio 并停止本地服务？')) return;
+    await stopLocalService();
+    window.close();
+  });
   bindAboutDialog({ api, toast });
   document.addEventListener('click', event => { if (!event.target.closest('#consoleMenu, #consoleAllMenu, [data-act="toggle-console-menu"]')) hideMenus(); });
   window.addEventListener('pagehide', () => consoleSessionManager.flush().catch(reportConsoleSessionError));
@@ -683,7 +689,6 @@ async function ensureData(tab) {
   if (curTab() === tab) renderBody();
 }
 function reloadData(tab) { tab.data = null; ensureData(tab); }
-
 function renderTableTab(tab, body) {
   const subview = resolveTableSubview(tab);
   if (tab.subview !== subview) tab.subview = subview;
@@ -879,7 +884,6 @@ function persistConsoleSession() {
     nextSequence: state.consoleSeq,
   }));
 }
-
 function changeConsoleInstance(tab, instance) {
   tab.instance = instance;
   tab.dbType = findDbType(state.instances, instance);
@@ -891,7 +895,6 @@ function changeConsoleInstance(tab, instance) {
   scheduleConsoleSession(tab);
   loadConsoleDbs(tab);
 }
-
 function changeConsoleDatabase(tab, db) {
   tab.db = db;
   tab.schema = '';
@@ -905,13 +908,11 @@ function changeConsoleDatabase(tab, db) {
     syncTreeToConsole(tab);
   }
 }
-
 function changeConsoleSchema(tab, schema) {
   tab.schema = schema;
   scheduleConsoleSession(tab);
   syncTreeToConsole(tab);
 }
-
 function reportConsoleSessionError(error) { console.error('[SQL Studio] 控制台会话保存失败', error); toast('控制台内容保存失败：' + error.message, 'err'); }
 /* ================= 事件委托 ================= */
 function bindDelegation() {
@@ -960,7 +961,6 @@ function bindDelegation() {
     onHoverError: error => console.error('[SQL Studio] 表结构预取失败', error),
   });
 }
-
 function applyWhere(tab) {
   const input = document.querySelector('[data-act=where-input]');
   if (!tab || !input) return;

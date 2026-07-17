@@ -42,12 +42,11 @@ async function testRequiredProjectFiles() {
 async function testVersionAndLicenseMetadata() {
   const packageJson = JSON.parse(await readUtf8('package.json'));
   const packageLock = JSON.parse(await readUtf8('package-lock.json'));
-  const tauriConfig = JSON.parse(await readUtf8('src-tauri/tauri.conf.json'));
   const cargoToml = await readUtf8('src-tauri/Cargo.toml');
   const cargoVersion = cargoToml.match(/^version\s*=\s*"([^"]+)"/m)?.[1];
   const cargoLicense = cargoToml.match(/^license\s*=\s*"([^"]+)"/m)?.[1];
   const cargoRepository = cargoToml.match(/^repository\s*=\s*"([^"]+)"/m)?.[1];
-  const versions = [packageJson.version, packageLock.version, tauriConfig.version, cargoVersion];
+  const versions = [packageJson.version, packageLock.version, cargoVersion];
   assert.equal(new Set(versions).size, 1, 'package, Tauri and Cargo versions must match');
   assert.equal(packageJson.license, 'MIT');
   assert.equal(cargoLicense, 'MIT');
@@ -62,7 +61,7 @@ async function testAboutDialogMetadata() {
     assert.ok(html.includes(`id="${id}"`), relativePath + ' missing ' + id);
   }
   assert.ok(html.includes('role="dialog"') && html.includes('aria-modal="true"'));
-  assert.ok(html.includes('Windows 桌面端 · Tauri 2'), relativePath + ' missing client label');
+  assert.ok(html.includes('Windows 桌面端 · 浏览器模式'), relativePath + ' missing client label');
   assert.ok(html.includes('<span class="k">作者</span><span class="v">fanzhibiao</span>'), relativePath + ' missing author');
   assert.ok(html.includes('MIT License'), relativePath + ' missing license');
   assert.ok(!html.includes('项目定位'), relativePath + ' includes removed project positioning');
@@ -80,17 +79,12 @@ async function testAppEntrypointStructure() {
   assert.ok(source.trimEnd().endsWith('init();'), relativePath + ' missing init call');
 }
 
-async function testDesktopBackgroundMode() {
+async function testBrowserMode() {
   const cargoToml = await readUtf8('src-tauri/Cargo.toml');
-  const mainSource = await readUtf8('src-tauri/src/main.rs');
-  const backgroundSource = await readUtf8('src-tauri/src/background.rs');
-  assert.match(cargoToml, /tauri\s*=\s*\{[^\n]*"tray-icon"/);
-  assert.ok(mainSource.includes('background::setup_tray(app, log_path)?;'));
-  assert.ok(mainSource.includes('api.prevent_close();'));
-  assert.ok(mainSource.includes('background::hide_main_window(window, &window_path);'));
-  assert.ok(backgroundSource.includes('TrayIconBuilder::with_id(TRAY_ICON_ID)'));
-  assert.ok(backgroundSource.includes('.show_menu_on_left_click(false)'));
-  assert.ok(backgroundSource.includes('handle.exit(0);'));
+  const serverSource = await readUtf8('src-tauri/src/server.rs');
+  assert.match(cargoToml, /axum\s*=/);
+  assert.ok(serverSource.includes('Ipv4Addr::LOCALHOST'));
+  assert.ok(serverSource.includes('x-sql-studio-token'));
 }
 
 async function testConsoleLauncherStructure() {
@@ -150,7 +144,7 @@ await testRequiredProjectFiles();
 await testVersionAndLicenseMetadata();
 await testAboutDialogMetadata();
 await testAppEntrypointStructure();
-await testDesktopBackgroundMode();
+await testBrowserMode();
 await testConsoleLauncherStructure();
 await testMarkdownLinks(files);
 await testEncodingAndSourceSize(files);

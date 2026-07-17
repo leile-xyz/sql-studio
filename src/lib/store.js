@@ -4,6 +4,8 @@
  * 密码存 Windows 凭据管理器（DPAPI），本地文件只留 {user, remember} 标志。
  */
 
+import { invoke } from './host.mjs';
+
 const KEY_ENVS = 'sqls_envs';
 const KEY_ACTIVE = 'sqls_active_env';
 const KEY_CREDS = 'sqls_creds';       // { [envId]: { user, remember } }（密码在凭据管理器）
@@ -26,11 +28,6 @@ async function loadDefaultEnvs() {
     }
 }
 
-function invoke(cmd, args) {
-    return window.__TAURI__.core.invoke(cmd, args).catch(e => {
-        throw new Error(typeof e === 'string' ? e : (e && e.message) || '存储操作失败');
-    });
-}
 const kvGet = key => invoke('kv_get', { key });
 const kvSet = (key, value) => invoke('kv_set', { key, value });
 
@@ -83,7 +80,7 @@ export async function removeEnv(id) {
     const creds = await getAllCreds();
     delete creds[id];
     await kvSet(KEY_CREDS, creds);
-    await invoke('cred_delete', { envId: id });
+    await invoke('cred_delete', { env_id: id });
     return envs;
 }
 
@@ -105,7 +102,7 @@ export async function getCred(envId) {
     const c = creds[envId];
     if (!c) return { user: '', password: '', remember: false };
     let password = '';
-    if (c.remember) password = (await invoke('cred_get', { envId })) || '';
+    if (c.remember) password = (await invoke('cred_get', { env_id: envId })) || '';
     return { user: c.user || '', password, remember: !!c.remember };
 }
 
@@ -114,8 +111,8 @@ export async function saveCred(envId, { user, password, remember }) {
     const creds = await getAllCreds();
     creds[envId] = { user: user || '', remember: !!remember };
     await kvSet(KEY_CREDS, creds);
-    if (remember && password) await invoke('cred_set', { envId, password });
-    else await invoke('cred_delete', { envId });
+    if (remember && password) await invoke('cred_set', { env_id: envId, password });
+    else await invoke('cred_delete', { env_id: envId });
 }
 
 /** 仅清除某环境已保存的密码，保留用户名 */
@@ -125,7 +122,7 @@ export async function clearCredPassword(envId) {
         creds[envId].remember = false;
         await kvSet(KEY_CREDS, creds);
     }
-    await invoke('cred_delete', { envId });
+    await invoke('cred_delete', { env_id: envId });
 }
 
 /** 返回各环境是否已记住密码，用于环境管理列表展示 */

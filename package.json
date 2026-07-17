@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "license": "MIT",
-  "description": "SQL Studio Windows 桌面版（Tauri 2）",
+  "description": "SQL Studio 本地浏览器模式",
   "homepage": "https://github.com/leile-xyz/sql-studio",
   "repository": {
     "type": "git",
@@ -17,20 +17,20 @@
     "database",
     "mysql",
     "postgresql",
-    "tauri"
+    "browser"
   ],
   "engines": {
     "node": ">=20"
   },
   "scripts": {
-    "dev": "tauri dev",
-    "build": "tauri build --no-bundle",
+    "dev": "cargo run --manifest-path src-tauri/Cargo.toml",
+    "build": "cargo build --release --manifest-path src-tauri/Cargo.toml",
     "test": "npm run test:unit && npm run test:project",
     "test:unit": "node test/unit.mjs",
     "test:project": "node test/project.mjs"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2.11.4",
     "playwright-core": "^1.61.1"
   }
 }
+
