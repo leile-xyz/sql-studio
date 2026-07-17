@@ -81,10 +81,21 @@ async function testAppEntrypointStructure() {
 
 async function testBrowserMode() {
   const cargoToml = await readUtf8('src-tauri/Cargo.toml');
+  const mainSource = await readUtf8('src-tauri/src/main.rs');
   const serverSource = await readUtf8('src-tauri/src/server.rs');
+  const traySource = await readUtf8('src-tauri/src/tray.rs');
   assert.match(cargoToml, /axum\s*=/);
+  assert.match(cargoToml, /tray-icon\s*=/);
   assert.ok(serverSource.includes('Ipv4Addr::LOCALHOST'));
   assert.ok(serverSource.includes('x-sql-studio-token'));
+  assert.ok(serverSource.includes('pub struct ShutdownHandle'));
+  assert.ok(mainSource.includes('tray::run(&runtime, server)'));
+  assert.ok(traySource.includes('TrayIconBuilder::new()'));
+  assert.ok(traySource.includes('.with_menu_on_left_click(false)'));
+  assert.ok(traySource.includes('MouseButton::Left'));
+  assert.ok(traySource.includes('open::that(url)'));
+  assert.ok(traySource.includes('shutdown.request()'));
+  assert.ok(traySource.includes('include_bytes!("../icons/32x32.png")'));
 }
 
 async function testConsoleLauncherStructure() {

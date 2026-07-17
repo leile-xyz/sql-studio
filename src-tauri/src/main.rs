@@ -2,6 +2,8 @@
 
 mod server;
 mod services;
+#[cfg(windows)]
+mod tray;
 
 use std::{fs, path::PathBuf};
 
@@ -15,18 +17,26 @@ fn config_dir() -> Result<PathBuf, String> {
     Ok(directory)
 }
 
-#[tokio::main]
-async fn main() {
-    if let Err(error) = run().await {
+fn main() {
+    if let Err(error) = run() {
         eprintln!("SQL Studio 启动失败：{error}");
         std::process::exit(1);
     }
 }
 
-async fn run() -> Result<(), String> {
+fn run() -> Result<(), String> {
+    let runtime =
+        tokio::runtime::Runtime::new().map_err(|error| format!("创建异步运行时失败：{error}"))?;
     let services = AppServices::load(config_dir()?.join("store.json"))?;
-    let server = RunningServer::bind(services).await?;
+    let server = runtime.block_on(RunningServer::bind(services))?;
     println!("SQL Studio browser mode: {}", server.url);
     open::that(&server.url).map_err(|error| format!("打开默认浏览器失败：{error}"))?;
-    server.serve().await
+    #[cfg(windows)]
+    {
+        tray::run(&runtime, server)
+    }
+    #[cfg(not(windows))]
+    {
+        runtime.block_on(server.serve())
+    }
 }

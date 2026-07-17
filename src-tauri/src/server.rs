@@ -30,7 +30,16 @@ struct Assets;
 struct ServerState {
     services: Arc<AppServices>,
     token: Arc<str>,
-    shutdown: watch::Sender<bool>,
+    shutdown: ShutdownHandle,
+}
+
+#[derive(Clone)]
+pub struct ShutdownHandle(watch::Sender<bool>);
+
+impl ShutdownHandle {
+    pub fn request(&self) -> Result<(), String> {
+        self.0.send(true).map_err(|error| error.to_string())
+    }
 }
 
 #[derive(Deserialize)]
@@ -76,6 +85,7 @@ pub struct RunningServer {
     listener: TcpListener,
     router: Router,
     shutdown: watch::Receiver<bool>,
+    shutdown_handle: ShutdownHandle,
 }
 
 impl RunningServer {
@@ -90,10 +100,11 @@ impl RunningServer {
             .map(char::from)
             .collect();
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        let shutdown_handle = ShutdownHandle(shutdown_tx);
         let state = ServerState {
             services: Arc::new(services),
             token: token.clone().into(),
-            shutdown: shutdown_tx,
+            shutdown: shutdown_handle.clone(),
         };
         let router = Router::new()
             .route("/api/command", post(command))
@@ -105,7 +116,12 @@ impl RunningServer {
             listener,
             router,
             shutdown: shutdown_rx,
+            shutdown_handle,
         })
+    }
+
+    pub fn shutdown_handle(&self) -> ShutdownHandle {
+        self.shutdown_handle.clone()
     }
 
     pub async fn serve(self) -> Result<(), String> {
@@ -175,10 +191,7 @@ async fn execute(state: &ServerState, request: CommandRequest) -> Result<Value, 
         }
         CommandRequest::AppVersion => Ok(json!(env!("CARGO_PKG_VERSION"))),
         CommandRequest::Exit {} => {
-            state
-                .shutdown
-                .send(true)
-                .map_err(|error| error.to_string())?;
+            state.shutdown.request()?;
             Ok(Value::Null)
         }
     }
