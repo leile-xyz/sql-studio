@@ -13,6 +13,7 @@ import { createCsvExportActions } from './lib/csv-export-actions.mjs';
 import { saveCsvText } from './lib/csv-save.mjs';
 import { renderResourceTree } from './lib/resource-tree-view.mjs';
 import { createResourceTreeSearch } from './lib/resource-tree-search.mjs';
+import { resolveTreeConsoleChange, showTreeContextMenu } from './lib/resource-tree-menu.mjs';
 import { renderTableView, resolveTableSubview } from './lib/table-view.mjs';
 import { buildBrowseSql, buildCountSql, findDbType, isPostgresType, parseCountTotal } from './lib/db-context.mjs';
 import { renderTabBarView, showAllConsolesMenu, showConsoleMenu, showTabContextMenu } from './lib/console-menu-view.mjs';
@@ -93,7 +94,7 @@ function bindStatic() {
   bindAboutDialog({ api, toast });
   bindMcpDialog({ invoke: (command, args) => window.__TAURI__.core.invoke(command, args), toast });
   bindPluginManager({ api, toast }); workflowManager = bindWorkflowManager({ api, toast, getAppState: () => ({ envs: state.envs, activeEnvId: state.activeEnvId, origin: state.origin, username: state.user }) });
-  document.addEventListener('click', event => { if (!event.target.closest('#consoleMenu, #consoleAllMenu, [data-act="toggle-console-menu"]')) hideMenus(); });
+  document.addEventListener('click', event => { if (!event.target.closest('#consoleMenu, #consoleAllMenu, #treeContextMenu, [data-act="toggle-console-menu"]')) hideMenus(); });
   window.addEventListener('pagehide', () => consoleSessionManager.flush().catch(reportConsoleSessionError));
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') consoleSessionManager.flush().catch(reportConsoleSessionError);
@@ -403,7 +404,6 @@ async function toggleNode(uid) {
     else if (node.kind === 'table' && node.meta == null) await loadTableMeta(node);
   }
   renderTree();
-  if (node.kind === 'db' || node.kind === 'schema') syncConsoleToTree(node);
 }
 async function loadDbs(node) {
   node.loading = true; node.error = ''; renderTree();
@@ -484,7 +484,7 @@ function toggleFolder(uid, fold) {
   const tb = state.nodeMap.get(uid);
   if (tb && tb.open) { tb.open[fold] = !tb.open[fold]; renderTree(); }
 }
-/* ---- 控制台 ↔ 树 联动 ---- */
+/* ---- 控制台 → 树联动 ---- */
 /** 控制台选择实例/数据库/模式后，展开并高亮左侧树对应节点 */
 async function syncTreeToConsole(tab) {
   if (!tab || tab.type !== 'console' || !tab.instance || curTab() !== tab) return;
@@ -517,27 +517,20 @@ async function syncTreeToConsole(tab) {
   const el = $('tree').querySelector(`[data-uid="${target.uid}"]`);
   if (el) el.scrollIntoView({ block: 'nearest' });
 }
-/** 点击树上的数据库或模式节点时，同步到当前激活的控制台 */
-function syncConsoleToTree(node) {
-  const t = curTab();
-  if (!t || t.type !== 'console' || (node.kind !== 'db' && node.kind !== 'schema')) return;
-  const db = node.kind === 'schema' ? node.db : node.name;
-  const schema = node.kind === 'schema' ? node.name : '';
-  if (t.instance === node.inst && t.db === db && t.schema === schema) return;
-  const instChanged = t.instance !== node.inst;
-  const dbChanged = instChanged || t.db !== db;
-  t.instance = node.inst;
-  t.db = db;
-  t.schema = schema;
-  t.dbType = node.dbType || '';
-  if (instChanged) t.dbs = null;
-  if (dbChanged) t.schemas = null;
-  state.treeSel = { inst: node.inst, db, schema };
-  scheduleConsoleSession(t);
-  if (t.dbs == null) loadConsoleDbs(t);
-  else if (isPostgresType(t.dbType) && t.schemas == null) loadConsoleSchemas(t);
-  else renderConsole(t, $('tabbody'));
-  renderTree();
+function openTreeNodeInConsole(uid) {
+  hideMenus();
+  const tab = curTab();
+  if (!tab || tab.type !== 'console') { toast('请先切换到要覆盖的查询控制台', 'err'); return; }
+  const change = resolveTreeConsoleChange(tab, state.nodeMap.get(uid));
+  if (!change.changed) return;
+  Object.assign(tab, change.context);
+  if (change.instanceChanged) tab.dbs = null;
+  if (change.databaseChanged) tab.schemas = null;
+  state.treeSel = { inst: tab.instance, db: tab.db, schema: tab.schema };
+  scheduleConsoleSession(tab);
+  if (tab.dbs == null) loadConsoleDbs(tab);
+  else if (isPostgresType(tab.dbType) && tab.schemas == null) loadConsoleSchemas(tab);
+  else { renderConsole(tab, $('tabbody')); renderTree(); }
 }
 /* ================= 标签页 ================= */
 function openTableNode(uid) {
@@ -934,6 +927,8 @@ function bindDelegation() {
     closeTab: id => closeTabs({ id, mode: 'self' }),
     closeTabs,
     openTabContextMenu: options => showTabContextMenu({ tabs: state.tabs, hideMenus, ...options }),
+    openTreeContextMenu: options => showTreeContextMenu({ node: state.nodeMap.get(options.uid), hideMenus, ...options }),
+    openTreeNodeInConsole,
     newConsole,
     openDefaultConsole,
     openRenameConsole: id => consoleRename.open(id),

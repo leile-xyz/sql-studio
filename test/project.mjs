@@ -81,6 +81,22 @@ async function testAppEntrypointStructure() {
   assert.ok(source.trimEnd().endsWith('init();'), relativePath + ' missing init call');
 }
 
+async function testTreeConsoleContextIsolation() {
+  const source = await readUtf8('src/app.js');
+  const events = await readUtf8('src/lib/app-events.mjs');
+  const html = await readUtf8('src/index.html');
+  const toggleStart = source.indexOf('async function toggleNode');
+  const toggleEnd = source.indexOf('async function loadDbs', toggleStart);
+  assert.ok(toggleStart >= 0 && toggleEnd > toggleStart, 'resource tree toggle implementation is missing');
+  assert.ok(source.includes('async function syncTreeToConsole'), 'console-to-tree synchronization is missing');
+  assert.ok(!source.includes('function syncConsoleToTree'), 'tree browsing must not overwrite console context');
+  assert.ok(!source.slice(toggleStart, toggleEnd).includes('syncConsoleToTree'));
+  assert.ok(source.includes('function openTreeNodeInConsole'), 'tree console action is missing');
+  assert.ok(events.includes("'tree-open-console'"));
+  assert.ok(events.includes("event.target.closest('#tree .tnode[data-uid]')"));
+  assert.ok(html.includes('id="treeContextMenu"'));
+}
+
 async function testDesktopBackgroundMode() {
   const cargoToml = await readUtf8('src-tauri/Cargo.toml');
   const mainSource = await readUtf8('src-tauri/src/main.rs');
@@ -194,6 +210,7 @@ await testRequiredProjectFiles();
 await testVersionAndLicenseMetadata();
 await testAboutDialogMetadata();
 await testAppEntrypointStructure();
+await testTreeConsoleContextIsolation();
 await testDesktopBackgroundMode();
 await testScheduleStructure();
 await testMcpStructure();

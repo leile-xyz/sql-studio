@@ -437,6 +437,7 @@ button { font-family: inherit; }
 .menu-title { padding: 7px 10px 5px; color: var(--text); font-weight: 600; }
 .menu-empty { padding: 8px 10px; color: var(--text-faint); }
 .tab-context-menu { min-width: 150px; }
+.tree-context-menu { min-width: 190px; }
 .console-menu { min-width: 220px; }
 .console-all-menu { min-width: 190px; max-height: min(70vh, 520px); overflow-y: auto; }
 .console-menu-icon { color: var(--blue); font-family: var(--mono); font-weight: 700; }
