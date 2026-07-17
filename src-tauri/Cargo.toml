@@ -32,7 +32,7 @@ rusqlite = { version = "0.37", features = ["bundled"] }
 uuid = { version = "1", features = ["v4"] }
 chrono = { version = "0.4", features = ["clock"] }
 chrono-tz = "0.10"
-cron = "0.15"
+cron = "0.17"
 ciborium = "0.2"
 sqlparser = "0.62"
 
