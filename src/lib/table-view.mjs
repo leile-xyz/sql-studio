@@ -92,12 +92,18 @@ function renderDataView(tab, subview) {
   const pagination = paginationState(tab, rows.length);
   const start = (tab.page - 1) * tab.pageSize;
   const orderBy = tab.orderBy || [];
-  let gridArea = `<div class="gridwrap">${renderGrid(columns, rows, {
-    sortable: true,
-    orderBy,
-    start,
-    widths: tab.colW,
-  })}</div>`;
+  const emptyContent = '<div class="big">查询结果为空</div><div>当前数据表未返回任何数据</div>';
+  const emptyState = tab.data && !rows.length
+    ? `<div class="center-view" style="position:absolute;inset:31px 0 0">${emptyContent}</div>`
+    : '';
+  let gridArea = tab.data && !rows.length && !columns.length
+    ? `<div class="center-view">${emptyContent}</div>`
+    : `<div class="gridwrap">${renderGrid(columns, rows, {
+      sortable: true,
+      orderBy,
+      start,
+      widths: tab.colW,
+    })}${emptyState}</div>`;
   if (tab.dataErr) gridArea = errorBox('查询失败', tab.dataErr);
   if (tab.dataLoading && !tab.data) {
     gridArea = '<div class="center-view"><div class="spinner"></div><div>正在查询…</div></div>';

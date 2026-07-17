@@ -6,8 +6,17 @@ import {
   normalizeSchedule,
   scheduleStatusLabel,
   parseScheduleExpression,
+  validateSchedulePreviewInput,
   validateScheduleInput,
+  workflowScheduleApi,
 } from '../src/lib/workflow-schedule.mjs';
+
+const previewInput = validateSchedulePreviewInput({
+  cronExpression: ' 0  9 * * 1,3,5 ', timezone: 'Asia/Shanghai',
+});
+assert.deepEqual(previewInput, { cronExpression: '0 9 * * 1,3,5', timezone: 'Asia/Shanghai' });
+assert.ok(Object.isFrozen(previewInput));
+assert.equal(typeof workflowScheduleApi.preview, 'function');
 
 const input = validateScheduleInput({
   workflowId: 'workflow-1', cronExpression: ' 0   9 * * * ', timezone: DEFAULT_SCHEDULE_TIMEZONE, enabled: true,
@@ -39,7 +48,12 @@ assert.deepEqual(parseScheduleExpression('15 8 20 * *'), { mode: 'monthly', time
 assert.deepEqual(parseScheduleExpression('0 0 9 * * *'), { mode: 'custom', cronExpression: '0 0 9 * * *' });
 assert.equal(buildScheduleExpression({ mode: 'daily', time: '09:05' }), '5 9 * * *');
 assert.equal(buildScheduleExpression({ mode: 'weekly', time: '18:30', weekdays: ['1', '3', '5'] }), '30 18 * * 1,3,5');
+assert.equal(buildScheduleExpression({ mode: 'weekly', time: '09:00', weekdays: ['6'] }), '0 9 * * 6');
 assert.equal(buildScheduleExpression({ mode: 'monthly', time: '08:15', monthDay: 20 }), '15 8 20 * *');
+assert.throws(
+  () => buildScheduleExpression({ mode: 'monthly', time: '08:15', monthDay: 32 }),
+  /1 至 31 的整数/,
+);
 assert.equal(buildScheduleExpression({ mode: 'custom', cronExpression: ' 0  0 9 * * * ' }), '0 0 9 * * *');
 assert.throws(() => buildScheduleExpression({ mode: 'weekly', time: '09:00', weekdays: [] }), /至少选择一个/);
 

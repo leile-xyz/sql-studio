@@ -1,4 +1,5 @@
 const DEFAULT_CRON_EXPRESSION = '0 9 * * *';
+const PREVIEW_DEBOUNCE_MS = 180;
 export const DEFAULT_SCHEDULE_TIMEZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
 const CRON_FIELD_COUNTS = new Set([5, 6, 7]);
 const TIMEZONE_PATTERN = /^(?:UTC|[A-Za-z0-9._+-]+\/[A-Za-z0-9._+\/-]+)$/;
@@ -12,21 +13,27 @@ function invoke(command, args = {}) {
 
 export const workflowScheduleApi = Object.freeze({
   get: workflowId => invoke('workflow_schedule_get', { workflowId }),
+  preview: input => invoke('workflow_schedule_preview', { input }),
   upsert: input => invoke('workflow_schedule_upsert', { input }),
   setEnabled: (workflowId, enabled) => invoke('workflow_schedule_set_enabled', { input: { workflowId, enabled } }),
   delete: workflowId => invoke('workflow_schedule_delete', { workflowId }),
 });
 
-export function validateScheduleInput(input) {
-  const workflowId = String(input?.workflowId || '').trim();
+export function validateSchedulePreviewInput(input) {
   const cronExpression = String(input?.cronExpression || '').trim().replace(/\s+/g, ' ');
   const timezone = String(input?.timezone || '').trim();
-  if (!workflowId) throw new Error('请先保存并发布流水线');
   if (!CRON_FIELD_COUNTS.has(cronExpression.split(' ').filter(Boolean).length)) {
     throw new Error('Cron 表达式需要 5、6 或 7 个字段');
   }
   if (!TIMEZONE_PATTERN.test(timezone)) throw new Error('请输入有效的 IANA 时区，例如 Asia/Shanghai');
-  return Object.freeze({ workflowId, cronExpression, timezone, enabled: Boolean(input?.enabled) });
+  return Object.freeze({ cronExpression, timezone });
+}
+
+export function validateScheduleInput(input) {
+  const workflowId = String(input?.workflowId || '').trim();
+  if (!workflowId) throw new Error('请先保存并发布流水线');
+  const rule = validateSchedulePreviewInput(input);
+  return Object.freeze({ workflowId, ...rule, enabled: Boolean(input?.enabled) });
 }
 
 export function normalizeSchedule(value) {
@@ -85,7 +92,9 @@ export function buildScheduleExpression({ mode, time, weekdays = [], monthDay, c
   if (mode === 'daily') return `${Number(match[2])} ${Number(match[1])} * * *`;
   if (mode === 'monthly') {
     const day = Number(monthDay);
-    if (!Number.isInteger(day) || day < 1 || day > 31) throw new Error('请选择每月执行日期');
+    if (!Number.isInteger(day) || day < 1 || day > 31) {
+      throw new Error('每月执行日期请输入 1 至 31 的整数');
+    }
     return `${Number(match[2])} ${Number(match[1])} ${day} * *`;
   }
   const days = [...new Set(weekdays.map(String))].filter(day => /^[0-6]$/.test(day));
@@ -94,15 +103,24 @@ export function buildScheduleExpression({ mode, time, weekdays = [], monthDay, c
 }
 
 export function bindWorkflowSchedule({ get, toast, onChanged, api = workflowScheduleApi }) {
-  const state = { workflow: null, schedule: null, loading: false, loadFailed: false, requestId: 0 };
+  const state = {
+    workflow: null, schedule: null, loading: false, loadFailed: false, requestId: 0,
+    previewRequestId: 0, previewTimer: null,
+  };
   const context = Object.freeze({ get, toast, onChanged, api, state });
   initializeTimePicker(context);
   get('workflowScheduleSave').addEventListener('click', () => saveSchedule(context));
   get('workflowScheduleDelete').addEventListener('click', () => deleteSchedule(context));
   get('workflowScheduleEnabled').addEventListener('change', () => toggleSchedule(context));
   document.querySelectorAll('input[name="workflowScheduleMode"]').forEach(input => {
-    input.addEventListener('change', () => renderScheduleMode(context));
+    input.addEventListener('change', () => {
+      renderScheduleMode(context);
+      queueSchedulePreview(context);
+    });
   });
+  get('workflowScheduleMonthDay').addEventListener('input', () => queueSchedulePreview(context));
+  get('workflowScheduleWeekdays').addEventListener('change', () => queueSchedulePreview(context));
+  get('workflowScheduleCron').addEventListener('input', () => queueSchedulePreview(context));
   return Object.freeze({ load: workflow => loadSchedule(context, workflow), clear: () => clearSchedule(context) });
 }
 
@@ -147,6 +165,7 @@ function selectTimeValue(context, event) {
   setTimePart(context, part, option.dataset.timeValue);
   closeTimeMenus(context);
   context.get(part === 'hour' ? 'workflowScheduleHour' : 'workflowScheduleMinute').focus();
+  queueSchedulePreview(context);
 }
 
 function closeTimeMenus(context) {
@@ -231,6 +250,7 @@ function renderSchedule(context) {
 }
 
 function setScheduleFields(context, schedule) {
+  cancelSchedulePreview(context);
   const timezone = schedule?.timezone || DEFAULT_SCHEDULE_TIMEZONE;
   const expression = schedule?.cronExpression || DEFAULT_CRON_EXPRESSION;
   const parsed = parseScheduleExpression(expression);
@@ -262,19 +282,71 @@ function renderScheduleMode(context) {
   context.get('workflowScheduleMonth').hidden = mode !== 'monthly';
 }
 
-function collectScheduleInput(context) {
+function collectScheduleRule(context) {
   const mode = document.querySelector('input[name="workflowScheduleMode"]:checked')?.value || 'daily';
   const weekdays = [...context.get('workflowScheduleWeekdays').querySelectorAll('input:checked')].map(input => input.value);
-  return validateScheduleInput({
-    workflowId: context.state.workflow?.id,
+  return validateSchedulePreviewInput({
     cronExpression: buildScheduleExpression({
       mode, weekdays, monthDay: context.get('workflowScheduleMonthDay').value,
       time: getTimePickerValue(context),
       cronExpression: context.get('workflowScheduleCron').value,
     }),
     timezone: context.get('workflowScheduleTimezone').value,
+  });
+}
+
+function collectScheduleInput(context) {
+  const rule = collectScheduleRule(context);
+  return validateScheduleInput({
+    workflowId: context.state.workflow?.id,
+    ...rule,
     enabled: context.get('workflowScheduleEnabled').checked,
   });
+}
+
+function cancelSchedulePreview(context) {
+  clearTimeout(context.state.previewTimer);
+  context.state.previewTimer = null;
+  context.state.previewRequestId += 1;
+}
+
+function queueSchedulePreview(context) {
+  cancelSchedulePreview(context);
+  if (!context.state.workflow?.activeVersionId) return;
+  const next = context.get('workflowScheduleNext');
+  if (!context.get('workflowScheduleEnabled').checked) {
+    next.textContent = '—';
+    context.get('workflowScheduleError').textContent = '';
+    return;
+  }
+  let input;
+  try {
+    input = collectScheduleRule(context);
+  } catch (error) {
+    next.textContent = '—';
+    context.get('workflowScheduleError').textContent = error.message;
+    return;
+  }
+  const requestId = context.state.previewRequestId;
+  next.textContent = '计算中…';
+  context.get('workflowScheduleError').textContent = '';
+  context.state.previewTimer = setTimeout(
+    () => loadSchedulePreview(context, requestId, input),
+    PREVIEW_DEBOUNCE_MS,
+  );
+}
+
+async function loadSchedulePreview(context, requestId, input) {
+  try {
+    const value = await context.api.preview(input);
+    if (requestId !== context.state.previewRequestId) return;
+    context.get('workflowScheduleNext').textContent = formatScheduleTime(value, input.timezone);
+    context.get('workflowScheduleError').textContent = '';
+  } catch (error) {
+    if (requestId !== context.state.previewRequestId) return;
+    context.get('workflowScheduleNext').textContent = '—';
+    context.get('workflowScheduleError').textContent = error.message;
+  }
 }
 
 async function saveSchedule(context) {
@@ -306,6 +378,7 @@ async function toggleSchedule(context) {
     await context.onChanged();
     context.toast(enabled ? '定时计划已启用' : '定时计划已停用', 'ok');
   } catch (error) {
+    setScheduleFields(context, context.state.schedule);
     context.get('workflowScheduleError').textContent = error.message;
   } finally { renderSchedule(context); }
 }

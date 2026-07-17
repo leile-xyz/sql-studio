@@ -153,6 +153,26 @@ function testConsoleResultView() {
   assert.match(view.html, /data-act="con-pagesize"/);
   assert.match(view.html, /data-act="con-page" data-page="2"/);
   assert.match(view.html, /<option selected>1000<\/option>/);
+
+  const emptyView = renderConsoleResultView({
+    results: [{ ...result, rows: [], totalRows: 0, pageCount: 1, hasNext: false }],
+    activeResult: 0,
+    colW: {},
+    executedSelection: false,
+  });
+  assert.match(emptyView.html, /<th [^>]*title="id · LONGLONG">/);
+  assert.match(emptyView.html, /查询结果为空/);
+  assert.match(emptyView.html, /当前查询未返回任何数据/);
+  assert.match(emptyView.html, /共 0 条 · 本页 0 条/);
+
+  const noColumnsView = renderConsoleResultView({
+    results: [{ ...result, columns: [], types: [], rows: [], pageable: false, totalRows: 0 }],
+    activeResult: 0,
+    colW: {},
+    executedSelection: false,
+  });
+  assert.match(noColumnsView.html, /查询结果为空/);
+  assert.doesNotMatch(noColumnsView.html, />无列</);
 }
 
 await testConsoleExecutionAndPaging();

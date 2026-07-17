@@ -107,9 +107,11 @@ CSV 导出会沿用已应用的 WHERE 和排序条件，从第一页开始按 10
 
 ## 开发与测试
 
-### MCP 表结构工具
+### MCP 资源工具
 
-SQL Studio 启动后会在本机启动 MCP HTTP 服务，并在 MCP 管理模块展示连接地址和 token。工具 `get_table_schema` 的 `tools/call` 参数为 `envId`、`origin`、`username`、`password`、`instanceName`、`databaseName` 和 `tableName`（PostgreSQL 可选 `schemaName`）。密码只在请求内存中使用，不写入日志。
+SQL Studio 启动后会在本机启动 MCP HTTP 服务，并在 MCP 管理模块展示连接地址和 Access Token。Token 保存在 Windows 凭据管理器中，重启软件不会变化；点击“重置”后旧 Token 立即失效。
+
+服务提供 `list_environments`、`list_instances`、`list_databases`、`list_tables` 和 `get_table_schema` 五个工具。工具只接收环境及资源定位参数，不要求 MCP 客户端传入账号密码；服务会复用 SQL Studio 当前登录会话，或使用环境管理中已保存的凭据建立会话。密码不会通过 MCP 参数传输，也不会写入日志。
 
 MCP 服务只绑定 `127.0.0.1`，不影响原桌面程序的 Tauri 窗口和启动方式。
 

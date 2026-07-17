@@ -6,6 +6,7 @@
 mod archery;
 mod background;
 mod mcp;
+mod mcp_tools;
 mod notifications;
 mod plugins;
 mod scheduler;
@@ -148,7 +149,8 @@ fn main() {
                 data: Mutex::new(data),
             });
             app.manage(archery::ArcheryService::default());
-            app.manage(mcp::start_host());
+            let mcp_token = mcp::load_or_create_token()?;
+            app.manage(mcp::start_host(app.handle().clone(), mcp_token));
             app.manage(workflow_db);
             app.manage(scheduler::SchedulerHost::start(app.handle().clone()));
             background::setup_tray(app)?;
@@ -165,6 +167,7 @@ fn main() {
             cred_delete,
             app_version,
             mcp_status,
+            mcp::reset_token,
             export_csv,
             plugins::dingtalk::dingtalk_config_status,
             plugins::dingtalk::dingtalk_save_config,
@@ -185,6 +188,7 @@ fn main() {
             workflows::commands::list_workflow_executions,
             workflows::commands::get_workflow_execution,
             workflows::schedule_commands::workflow_schedule_get,
+            workflows::schedule_commands::workflow_schedule_preview,
             workflows::schedule_commands::workflow_schedule_upsert,
             workflows::schedule_commands::workflow_schedule_set_enabled,
             workflows::schedule_commands::workflow_schedule_delete,

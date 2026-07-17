@@ -10,14 +10,15 @@ use axum::{
 use rand::{distr::Alphanumeric, Rng};
 use serde::Deserialize;
 use serde_json::{json, Value};
+use tauri::{AppHandle, State as TauriState};
 use tokio::net::TcpListener;
-
-use crate::archery::{ArcheryService, DescribeTableRequest, SessionContext};
 
 const PROTOCOL_VERSION: &str = "2025-06-18";
 const SERVER_NAME: &str = "sql-studio";
-const TOOL_NAME: &str = "get_table_schema";
 const MCP_PORT: u16 = 37625;
+const TOKEN_SERVICE: &str = "sql-studio-mcp";
+const TOKEN_ACCOUNT: &str = "access-token";
+const TOKEN_LENGTH: usize = 40;
 
 #[derive(Clone)]
 pub struct McpHost {
@@ -39,8 +40,8 @@ pub struct McpStatus {
 
 #[derive(Clone)]
 struct HttpState {
-    service: Arc<ArcheryService>,
-    token: Arc<str>,
+    app: AppHandle,
+    status: Arc<RwLock<McpStatus>>,
 }
 
 #[derive(Deserialize)]
@@ -48,12 +49,22 @@ struct TokenQuery {
     token: Option<String>,
 }
 
-pub fn start_host() -> McpHost {
-    let token: String = rand::rng()
-        .sample_iter(&Alphanumeric)
-        .take(40)
-        .map(char::from)
-        .collect();
+pub fn load_or_create_token() -> Result<String, String> {
+    let entry = token_entry()?;
+    match entry.get_password() {
+        Ok(token) if !token.is_empty() => Ok(token),
+        Ok(_) | Err(keyring::Error::NoEntry) => {
+            let token = generate_token();
+            entry
+                .set_password(&token)
+                .map_err(|error| format!("保存 MCP Access Token 失败：{error}"))?;
+            Ok(token)
+        }
+        Err(error) => Err(format!("读取 MCP Access Token 失败：{error}")),
+    }
+}
+
+pub fn start_host(app: AppHandle, token: String) -> McpHost {
     let status = Arc::new(RwLock::new(build_status(token.clone())));
     let host = McpHost {
         status: status.clone(),
@@ -80,8 +91,8 @@ pub fn start_host() -> McpHost {
             };
             status.write().expect("MCP status lock").running = true;
             let state = HttpState {
-                service: Arc::new(ArcheryService::default()),
-                token: token.into(),
+                app,
+                status: status.clone(),
             };
             let router = Router::new()
                 .route("/mcp", post(mcp_request))
@@ -112,7 +123,7 @@ fn build_status(token: String) -> McpStatus {
         streamable_http_url,
         json_config,
         token,
-        tools: vec![TOOL_NAME.into()],
+        tools: crate::mcp_tools::names(),
         error: None,
     }
 }
@@ -121,6 +132,36 @@ impl McpHost {
     pub fn status(&self) -> McpStatus {
         self.status.read().expect("MCP status lock").clone()
     }
+
+    fn replace_token(&self, token: String) -> McpStatus {
+        let previous = self.status();
+        let mut status = build_status(token);
+        status.running = previous.running;
+        status.error = previous.error;
+        *self.status.write().expect("MCP status lock") = status.clone();
+        status
+    }
+}
+
+#[tauri::command]
+pub fn reset_token(host: TauriState<'_, McpHost>) -> Result<McpStatus, String> {
+    let token = generate_token();
+    token_entry()?
+        .set_password(&token)
+        .map_err(|error| format!("保存 MCP Access Token 失败：{error}"))?;
+    Ok(host.replace_token(token))
+}
+
+fn token_entry() -> Result<keyring::Entry, String> {
+    keyring::Entry::new(TOKEN_SERVICE, TOKEN_ACCOUNT).map_err(|error| error.to_string())
+}
+
+fn generate_token() -> String {
+    rand::rng()
+        .sample_iter(&Alphanumeric)
+        .take(TOKEN_LENGTH)
+        .map(char::from)
+        .collect()
 }
 
 async fn mcp_request(
@@ -128,14 +169,15 @@ async fn mcp_request(
     State(state): State<HttpState>,
     body: String,
 ) -> Response {
-    if query.token.as_deref() != Some(state.token.as_ref()) {
+    let expected = state.status.read().expect("MCP status lock").token.clone();
+    if !authorized(query.token.as_deref(), &expected) {
         return (
             StatusCode::UNAUTHORIZED,
             Json(json!({"error":"MCP token 无效"})),
         )
             .into_response();
     }
-    match handle_line(&state.service, &body).await {
+    match handle_line(Some(&state.app), &body).await {
         Some(response) => (StatusCode::OK, Json(response)).into_response(),
         None => StatusCode::ACCEPTED.into_response(),
     }
@@ -150,21 +192,7 @@ struct RpcRequest {
     params: Value,
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ToolArguments {
-    env_id: String,
-    origin: String,
-    username: String,
-    password: String,
-    instance_name: String,
-    database_name: String,
-    #[serde(default)]
-    schema_name: Option<String>,
-    table_name: String,
-}
-
-async fn handle_line(service: &ArcheryService, line: &str) -> Option<Value> {
+async fn handle_line(app: Option<&AppHandle>, line: &str) -> Option<Value> {
     let request: RpcRequest = match serde_json::from_str(line) {
         Ok(request) => request,
         Err(error) => {
@@ -180,34 +208,30 @@ async fn handle_line(service: &ArcheryService, line: &str) -> Option<Value> {
         "initialize" => rpc_result(id, initialize_result()),
         "ping" => rpc_result(id, json!({})),
         "tools/list" => rpc_result(id, tools_result()),
-        "tools/call" => handle_tool_call(service, id, request.params).await,
+        "tools/call" => handle_tool_call(app, id, request.params).await,
         _ => rpc_error(id, -32601, "不支持的 MCP 方法"),
     })
 }
 
-async fn handle_tool_call(service: &ArcheryService, id: Value, params: Value) -> Value {
-    if params.get("name").and_then(Value::as_str) != Some(TOOL_NAME) {
+async fn handle_tool_call(app: Option<&AppHandle>, id: Value, params: Value) -> Value {
+    let Some(name) = params.get("name").and_then(Value::as_str) else {
+        return rpc_error(id, -32602, "缺少 MCP 工具名");
+    };
+    if !crate::mcp_tools::contains(name) {
         return rpc_error(id, -32602, "未知 MCP 工具");
     }
-    let arguments: ToolArguments = match serde_json::from_value(params["arguments"].clone()) {
-        Ok(arguments) => arguments,
-        Err(error) => return tool_error(id, format!("工具参数无效：{error}")),
+    let Some(app) = app else {
+        return tool_error(id, "MCP 应用上下文不可用".into());
     };
-    let context = SessionContext::new(arguments.env_id, arguments.username, arguments.origin);
-    if let Err(error) = service.login(&context, &arguments.password).await {
-        return tool_error(id, error);
-    }
-    let request = DescribeTableRequest {
-        instance_name: arguments.instance_name,
-        database_name: arguments.database_name,
-        schema_name: arguments.schema_name,
-        table_name: arguments.table_name,
-    };
-    match service.describe_table(&context, &request).await {
-        Ok(schema) => rpc_result(
-            id,
-            json!({ "content": [{ "type": "text", "text": schema.to_string() }] }),
-        ),
+    let arguments = params
+        .get("arguments")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    match crate::mcp_tools::call(app, name, arguments).await {
+        Ok(value) => match serde_json::to_string_pretty(&value) {
+            Ok(text) => rpc_result(id, json!({ "content": [{ "type": "text", "text": text }] })),
+            Err(error) => tool_error(id, format!("序列化工具结果失败：{error}")),
+        },
         Err(error) => tool_error(id, error),
     }
 }
@@ -221,25 +245,11 @@ fn initialize_result() -> Value {
 }
 
 fn tools_result() -> Value {
-    json!({ "tools": [{
-        "name": TOOL_NAME,
-        "description": "通过 Archery 查询指定数据库表的字段、索引和 DDL 结构",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "envId": { "type": "string", "description": "SQL Studio 环境标识" },
-                "origin": { "type": "string", "description": "Archery 地址，如 https://archery.example.com" },
-                "username": { "type": "string" },
-                "password": { "type": "string" },
-                "instanceName": { "type": "string", "description": "Archery 实例名" },
-                "databaseName": { "type": "string" },
-                "schemaName": { "type": "string", "description": "PostgreSQL schema；MySQL 可省略" },
-                "tableName": { "type": "string" }
-            },
-            "required": ["envId", "origin", "username", "password", "instanceName", "databaseName", "tableName"],
-            "additionalProperties": false
-        }
-    }] })
+    crate::mcp_tools::definitions()
+}
+
+fn authorized(actual: Option<&str>, expected: &str) -> bool {
+    actual == Some(expected)
 }
 
 fn rpc_result(id: Value, result: Value) -> Value {
@@ -262,42 +272,31 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn lists_table_schema_tool() {
-        let response = handle_line(
-            &ArcheryService::default(),
-            r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#,
-        )
-        .await
-        .unwrap();
-        assert_eq!(response["result"]["tools"][0]["name"], TOOL_NAME);
+    async fn lists_all_resource_tools() {
+        let response = handle_line(None, r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#)
+            .await
+            .unwrap();
+        let tools = response["result"]["tools"].as_array().unwrap();
+        assert_eq!(tools.len(), 5);
+        assert_eq!(tools[0]["name"], crate::mcp_tools::LIST_ENVIRONMENTS);
+        assert_eq!(tools[4]["name"], crate::mcp_tools::GET_TABLE_SCHEMA);
     }
 
     #[tokio::test]
     async fn ignores_notifications() {
         assert!(handle_line(
-            &ArcheryService::default(),
+            None,
             r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#
         )
         .await
         .is_none());
     }
 
-    #[tokio::test]
-    async fn returns_accepted_for_streamable_http_notifications() {
-        let state = HttpState {
-            service: Arc::new(ArcheryService::default()),
-            token: "test-token".into(),
-        };
-        let response = mcp_request(
-            Query(TokenQuery {
-                token: Some("test-token".into()),
-            }),
-            State(state),
-            r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#.into(),
-        )
-        .await;
-
-        assert_eq!(response.status(), StatusCode::ACCEPTED);
+    #[test]
+    fn authorizes_only_current_token() {
+        assert!(authorized(Some("current"), "current"));
+        assert!(!authorized(Some("old"), "current"));
+        assert!(!authorized(None, "current"));
     }
 
     #[test]
@@ -314,5 +313,21 @@ mod tests {
             status["jsonConfig"]["mcpServers"][SERVER_NAME]["url"],
             expected_url
         );
+    }
+
+    #[test]
+    fn replacing_token_updates_auth_and_connection_config() {
+        let host = McpHost {
+            status: Arc::new(RwLock::new(build_status("old-token".into()))),
+        };
+        let status = host.replace_token("new-token".into());
+        assert_eq!(status.token, "new-token");
+        assert!(status.streamable_http_url.ends_with("token=new-token"));
+        assert_eq!(host.status().token, "new-token");
+    }
+
+    #[test]
+    fn generated_tokens_have_fixed_length() {
+        assert_eq!(generate_token().len(), TOKEN_LENGTH);
     }
 }

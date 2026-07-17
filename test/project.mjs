@@ -94,6 +94,35 @@ async function testDesktopBackgroundMode() {
   assert.ok(backgroundSource.includes('handle.exit(0);'));
 }
 
+async function testScheduleStructure() {
+  const main = await readUtf8('src-tauri/src/main.rs');
+  const scheduleUi = await readUtf8('src/lib/workflow-schedule.mjs');
+  const previewStart = scheduleUi.indexOf('function queueSchedulePreview');
+  const previewEnd = scheduleUi.indexOf('async function saveSchedule');
+  assert.ok(main.includes('workflow_schedule_preview'), 'schedule preview command must be registered');
+  assert.ok(scheduleUi.includes("preview: input => invoke('workflow_schedule_preview'"));
+  assert.ok(previewStart >= 0 && previewEnd > previewStart, 'schedule preview implementation is missing');
+  assert.ok(!scheduleUi.slice(previewStart, previewEnd).includes('onChanged'), 'preview must not refresh workflow list');
+  assert.ok(
+    scheduleUi.includes('setScheduleFields(context, context.state.schedule);\n    context.get(\'workflowScheduleError\')'),
+    'schedule toggle failure must restore persisted fields',
+  );
+}
+
+async function testMcpStructure() {
+  const mcp = await readUtf8('src-tauri/src/mcp.rs');
+  const tools = await readUtf8('src-tauri/src/mcp_tools.rs');
+  const main = await readUtf8('src-tauri/src/main.rs');
+  const dialog = await readUtf8('src/lib/mcp-dialog.mjs');
+  for (const name of ['list_environments', 'list_instances', 'list_databases', 'list_tables', 'get_table_schema']) {
+    assert.ok(tools.includes(`const ${name.toUpperCase()}`) || tools.includes(`"${name}"`), `MCP missing ${name}`);
+  }
+  assert.ok(mcp.includes('load_or_create_token()'));
+  assert.ok(mcp.includes('mcp_reset_token') || main.includes('mcp::reset_token'));
+  assert.ok(main.includes('mcp::load_or_create_token()'));
+  assert.ok(dialog.includes('mcpResetToken'));
+}
+
 async function testConsoleLauncherStructure() {
   const html = await readUtf8('src/index.html');
   assert.ok(html.includes('id="consoleMenu"'));
@@ -166,6 +195,8 @@ await testVersionAndLicenseMetadata();
 await testAboutDialogMetadata();
 await testAppEntrypointStructure();
 await testDesktopBackgroundMode();
+await testScheduleStructure();
+await testMcpStructure();
 await testConsoleLauncherStructure();
 await testPluginModuleStructure();
 await testMarkdownLinks(files);

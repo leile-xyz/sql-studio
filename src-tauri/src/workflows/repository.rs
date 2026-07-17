@@ -187,6 +187,7 @@ pub fn publish_workflow(
     validate_draft(&draft.name, &draft.data_source, &draft.nodes)?;
     validate_resources(&tx, &draft.nodes)?;
     let version_id = new_id();
+    let published_at = now();
     let version: i64 = tx
         .query_row(
             "SELECT COALESCE(MAX(version_number),0)+1 FROM workflow_versions WHERE workflow_id=?1",
@@ -194,7 +195,7 @@ pub fn publish_workflow(
             |row| row.get(0),
         )
         .map_err(db)?;
-    tx.execute("INSERT INTO workflow_versions(id,workflow_id,version_number,source_draft_revision,name,description,environment_id,instance_id,instance_name,database_name,database_type,schema_name,published_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)", params![version_id,input.workflow_id,version,draft.draft_revision,draft.name,draft.description,draft.data_source.environment_id,draft.data_source.instance_id,draft.data_source.instance_name,draft.data_source.database_name,draft.data_source.database_type,draft.data_source.schema_name,now()]).map_err(db)?;
+    tx.execute("INSERT INTO workflow_versions(id,workflow_id,version_number,source_draft_revision,name,description,environment_id,instance_id,instance_name,database_name,database_type,schema_name,published_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)", params![version_id,input.workflow_id,version,draft.draft_revision,draft.name,draft.description,draft.data_source.environment_id,draft.data_source.instance_id,draft.data_source.instance_name,draft.data_source.database_name,draft.data_source.database_type,draft.data_source.schema_name,published_at]).map_err(db)?;
     copy_version_nodes(&tx, &version_id, &draft.nodes)?;
     tx.execute(
         "UPDATE workflow_definitions
@@ -202,7 +203,12 @@ pub fn publish_workflow(
              enabled=CASE WHEN active_version_id IS NULL THEN 1 ELSE enabled END,
              updated_at=?2
          WHERE id=?3",
-        params![version_id, now(), input.workflow_id],
+        params![version_id, published_at, input.workflow_id],
+    )
+    .map_err(db)?;
+    tx.execute(
+        "UPDATE workflow_schedules SET workflow_version_id=?1,updated_at=?2 WHERE workflow_id=?3",
+        params![version_id, published_at, input.workflow_id],
     )
     .map_err(db)?;
     tx.commit().map_err(db)?;
@@ -582,6 +588,59 @@ mod tests {
                 params![version_id]
             )
             .is_err());
+    }
+
+    #[test]
+    fn republishing_updates_the_schedule_version() {
+        let mut connection = connection();
+        let id = create_workflow(&mut connection, &create_input("mysql", None)).unwrap();
+        let first_version = publish_workflow(
+            &mut connection,
+            &PublishWorkflowInput {
+                workflow_id: id.clone(),
+                expected_draft_revision: 1,
+            },
+        )
+        .unwrap();
+        connection
+            .execute(
+                "INSERT INTO workflow_schedules(id,workflow_id,workflow_version_id,
+                 cron_expression,timezone,enabled,created_at,updated_at)
+                 VALUES('schedule',?1,?2,'0 9 * * *','UTC',0,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)",
+                params![id, first_version],
+            )
+            .unwrap();
+        let detail = get_workflow(&connection, &id).unwrap();
+        update_workflow(
+            &mut connection,
+            &UpdateWorkflow {
+                workflow_id: id.clone(),
+                expected_draft_revision: 1,
+                name: detail.name,
+                description: detail.description,
+                data_source: detail.data_source,
+                nodes: vec![sql_node("SELECT 2")],
+            },
+        )
+        .unwrap();
+        let second_version = publish_workflow(
+            &mut connection,
+            &PublishWorkflowInput {
+                workflow_id: id,
+                expected_draft_revision: 2,
+            },
+        )
+        .unwrap();
+        let scheduled_version: String = connection
+            .query_row(
+                "SELECT workflow_version_id FROM workflow_schedules WHERE id='schedule'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+
+        assert_ne!(first_version, second_version);
+        assert_eq!(scheduled_version, second_version);
     }
 
     #[test]

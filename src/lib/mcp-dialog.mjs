@@ -10,10 +10,26 @@ export function bindMcpDialog(options) {
     }
   });
   byId('mcpClose').addEventListener('click', () => mask.classList.remove('show'));
+  byId('mcpResetToken').addEventListener('click', () => resetToken(byId, options));
   mask.addEventListener('click', event => {
     const button = event.target.closest('[data-copy-target]');
     if (button) copyValue(byId(button.dataset.copyTarget), options.toast);
   });
+}
+
+async function resetToken(byId, options) {
+  if (!window.confirm('重置后，所有使用旧 Token 的 MCP 客户端都需要更新配置。确定重置吗？')) return;
+  const button = byId('mcpResetToken');
+  button.disabled = true;
+  try {
+    renderStatus(byId, await options.invoke('mcp_reset_token'));
+    options.toast?.('MCP Access Token 已重置', 'ok');
+  } catch (error) {
+    renderError(byId('mcpError'), String(error));
+    options.toast?.(`重置失败：${error}`, 'err');
+  } finally {
+    button.disabled = false;
+  }
 }
 
 function renderStatus(byId, status) {
@@ -44,6 +60,13 @@ function formatConfig(url) {
 }
 
 function renderTools(container, tools) {
+  const descriptions = {
+    list_environments: '返回 SQL Studio 已配置的环境',
+    list_instances: '返回指定环境可访问的 Archery 实例',
+    list_databases: '返回指定实例的数据库',
+    list_tables: '返回指定数据库或 schema 的数据表',
+    get_table_schema: '返回数据表的字段、索引和 DDL 结构',
+  };
   container.replaceChildren();
   if (!tools.length) {
     const empty = document.createElement('span');
@@ -57,7 +80,7 @@ function renderTools(container, tools) {
     const title = document.createElement('code');
     title.textContent = name;
     const description = document.createElement('span');
-    description.textContent = name === 'get_table_schema' ? '查询数据库表的字段、索引和 DDL 结构' : 'MCP 工具';
+    description.textContent = descriptions[name] || 'MCP 工具';
     item.append(title, description);
     container.append(item);
   });

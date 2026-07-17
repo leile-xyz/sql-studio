@@ -26,7 +26,7 @@
     "dev": "tauri dev",
     "build": "tauri build --no-bundle",
     "test": "npm run test:unit && npm run test:project",
-    "test:unit": "node test/unit.mjs && node test/workflow-schedule.mjs && node test/workflow-autocomplete.mjs",
+    "test:unit": "node test/theme.mjs && node test/unit.mjs && node test/table-empty-state.mjs && node test/workflow-schedule.mjs && node test/workflow-autocomplete.mjs",
     "test:project": "node test/project.mjs"
   },
   "devDependencies": {

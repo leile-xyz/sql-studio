@@ -210,12 +210,13 @@ pub fn enqueue_due(
         Some(value) => value,
         None => return Ok(None),
     };
+    let missed_due_time = schedule_domain::parse_utc(&snapshot.scheduled_for)? < now_value;
     let next = next_string(&snapshot.cron_expression, &snapshot.timezone, now_value)?;
     let advance = ScheduleAdvance {
         next_run_at: &next,
         updated_at: now,
     };
-    if !snapshot.workflow_enabled {
+    if !snapshot.workflow_enabled || missed_due_time {
         let missed = advance_missed(&tx, &snapshot, &advance)?;
         tx.commit().map_err(db)?;
         return Ok(Some(DueScheduleResult::Skipped(missed)));
@@ -687,6 +688,28 @@ mod tests {
             Some("2026-07-16T00:02:00Z")
         );
         assert_eq!(schedule.last_execution_status.as_deref(), Some("pending"));
+    }
+
+    #[test]
+    fn overdue_schedule_is_skipped_without_creating_execution() {
+        let mut connection = connection();
+        upsert(&mut connection, &input("workflow-1", true), BASE).unwrap();
+        let result = enqueue_due(&mut connection, "2026-07-16T00:10:00Z")
+            .unwrap()
+            .unwrap();
+        let missed = match result {
+            DueScheduleResult::Skipped(value) => value,
+            DueScheduleResult::Enqueued(_) => panic!("overdue schedule must not be enqueued"),
+        };
+        let count: i64 = connection
+            .query_row("SELECT COUNT(*) FROM workflow_executions", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+
+        assert_eq!(missed.scheduled_for, DUE);
+        assert_eq!(missed.next_run_at, "2026-07-16T00:11:00Z");
+        assert_eq!(count, 0);
     }
 
     #[test]

@@ -74,7 +74,14 @@ function resultBody(result, columnWidths) {
     num: isNumericType(result.types[index]),
   }));
   const start = result.pageable ? (result.page - 1) * result.pageSize : 0;
-  return `<div class="gridwrap">${renderGrid(columns, result.rows, { widths: columnWidths, start })}</div>`;
+  if (result.rows.length) {
+    return `<div class="gridwrap">${renderGrid(columns, result.rows, { widths: columnWidths, start })}</div>`;
+  }
+  const emptyMessage = '<div class="big">查询结果为空</div><div>当前查询未返回任何数据</div>';
+  if (!columns.length) return `<div class="center-view">${emptyMessage}</div>`;
+  const grid = renderGrid(columns, [], { widths: columnWidths, start });
+  const empty = `<div class="center-view" style="position:absolute;inset:31px 0 0">${emptyMessage}</div>`;
+  return `<div class="gridwrap">${grid}${empty}</div>`;
 }
 
 export function renderConsoleResultView(tab) {

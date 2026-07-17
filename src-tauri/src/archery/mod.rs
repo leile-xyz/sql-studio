@@ -91,6 +91,13 @@ struct SessionClient {
 pub struct ArcheryService(Mutex<HashMap<SessionContext, Arc<SessionClient>>>);
 
 impl ArcheryService {
+    pub(crate) async fn has_session(&self, context: &SessionContext) -> bool {
+        let Ok(context) = validate_context(context) else {
+            return false;
+        };
+        self.0.lock().await.contains_key(&context)
+    }
+
     async fn client(&self, context: &SessionContext) -> Result<Arc<SessionClient>, String> {
         let context = validate_context(context)?;
         let mut sessions = self.0.lock().await;
@@ -172,6 +179,53 @@ impl ArcheryService {
         self.post(context, "/instance/describetable/", &describe_form(request))
             .await
     }
+
+    pub(crate) async fn list_instances(&self, context: &SessionContext) -> Result<Value, String> {
+        self.get(
+            context,
+            "/group/user_all_instances/?tag_codes%5B%5D=can_read",
+        )
+        .await
+    }
+
+    pub(crate) async fn list_databases(
+        &self,
+        context: &SessionContext,
+        instance_name: &str,
+    ) -> Result<Value, String> {
+        self.get(context, &resource_path(instance_name, "", "", "database"))
+            .await
+    }
+
+    pub(crate) async fn list_tables(
+        &self,
+        context: &SessionContext,
+        instance_name: &str,
+        database_name: &str,
+        schema_name: Option<&str>,
+    ) -> Result<Value, String> {
+        self.get(
+            context,
+            &resource_path(
+                instance_name,
+                database_name,
+                schema_name.unwrap_or_default(),
+                "table",
+            ),
+        )
+        .await
+    }
+}
+
+fn resource_path(instance: &str, database: &str, schema: &str, resource_type: &str) -> String {
+    let mut url =
+        Url::parse("http://localhost/instance/instance_resource/").expect("static resource URL");
+    url.query_pairs_mut()
+        .append_pair("instance_name", instance)
+        .append_pair("db_name", database)
+        .append_pair("schema_name", schema)
+        .append_pair("resource_type", resource_type);
+    format!("{}?{}", url.path(), url.query().unwrap_or_default())
 }
 
 fn describe_form(request: &DescribeTableRequest) -> HashMap<String, String> {

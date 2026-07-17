@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <title>SQL Studio · Archery 可视化客户端</title>
+<script>document.documentElement.dataset.theme = localStorage.getItem('sql-studio.theme') === 'dark' ? 'dark' : 'light';</script>
 <link rel="stylesheet" href="app.css">
 </head>
 <body>
@@ -27,6 +28,7 @@
   <button class="icon-btn topbar-action service-action" id="btnWorkflows" type="button" title="流水线" aria-label="流水线"><svg class="topbar-icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="4" cy="4" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="4" r="1.5"/><path d="M5.5 4H9a3 3 0 0 1 3 3v3.5M4 5.5v5a3 3 0 0 0 3 3h3.5"/></svg></button>
   <button class="icon-btn topbar-action service-action" id="btnPlugins" type="button" title="插件管理" aria-label="插件管理"><svg class="topbar-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 2.8a1.8 1.8 0 1 1 3.6 0V4H11a2 2 0 0 1 2 2v1.4h1.2a1.8 1.8 0 1 1 0 3.6H13V12a2 2 0 0 1-2 2H9.6v-1.2a1.8 1.8 0 1 0-3.6 0V14H4a2 2 0 0 1-2-2v-1.4h1.2a1.8 1.8 0 1 0 0-3.6H2V6a2 2 0 0 1 2-2h2z"/></svg></button>
   <button class="icon-btn topbar-action message-trigger" id="btnMessages" type="button" title="消息" aria-label="消息"><svg class="topbar-icon" viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="3.5" width="11" height="9" rx="1.5"/><path d="M3.2 4.5L8 8.2l4.8-3.7"/></svg><span class="message-badge" id="messageBadge" hidden>0</span></button>
+  <button class="icon-btn topbar-action" id="btnTheme" type="button" title="切换为深色主题" aria-label="切换为深色主题"><span class="theme-glyph" aria-hidden="true">☾</span></button>
   <button class="icon-btn topbar-action" id="btnAbout" type="button" title="关于 SQL Studio" aria-label="关于 SQL Studio"><svg class="topbar-icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="M8 7.2v4M8 4.8h.01"/></svg></button>
 </div>
 
@@ -46,7 +48,7 @@
         </div>
         <div class="mcp-field">
           <label for="mcpToken">Access Token</label>
-          <div class="mcp-value-row"><code id="mcpToken">—</code><button class="tbtn mcp-copy" type="button" data-copy-target="mcpToken">复制</button></div>
+          <div class="mcp-value-row"><code id="mcpToken">—</code><button class="tbtn mcp-action" id="mcpResetToken" type="button">重置</button></div>
         </div>
       </section>
       <section class="mcp-section">
@@ -110,7 +112,7 @@
               <div class="workflow-schedule-simple" id="workflowScheduleSimple">
                 <label class="workflow-schedule-time">执行时间<span class="workflow-time-picker"><span class="workflow-time-icon" aria-hidden="true">◷</span><span class="workflow-time-select" data-time-part="hour"><button class="workflow-time-trigger" id="workflowScheduleHour" type="button" aria-haspopup="listbox" aria-expanded="false"><span>09</span><i>⌄</i></button><span class="workflow-time-menu" id="workflowScheduleHourMenu" role="listbox" hidden></span></span><span class="workflow-time-separator">:</span><span class="workflow-time-select" data-time-part="minute"><button class="workflow-time-trigger" id="workflowScheduleMinute" type="button" aria-haspopup="listbox" aria-expanded="false"><span>00</span><i>⌄</i></button><span class="workflow-time-menu" id="workflowScheduleMinuteMenu" role="listbox" hidden></span></span></span></label>
                 <fieldset class="workflow-schedule-weekdays" id="workflowScheduleWeekdays" hidden><legend>执行日期</legend><label><input type="checkbox" value="1" checked><span>一</span></label><label><input type="checkbox" value="2"><span>二</span></label><label><input type="checkbox" value="3"><span>三</span></label><label><input type="checkbox" value="4"><span>四</span></label><label><input type="checkbox" value="5"><span>五</span></label><label><input type="checkbox" value="6"><span>六</span></label><label><input type="checkbox" value="0"><span>日</span></label></fieldset>
-                <label class="workflow-schedule-month" id="workflowScheduleMonth" hidden>每月日期<input type="number" id="workflowScheduleMonthDay" min="1" max="31" value="1"></label>
+                <label class="workflow-schedule-month" id="workflowScheduleMonth" hidden>每月日期<input type="number" id="workflowScheduleMonthDay" min="1" max="31" value="1" placeholder="1-31"></label>
               </div>
               <label class="workflow-schedule-custom" id="workflowScheduleCustom" hidden>Cron 表达式<input id="workflowScheduleCron" value="0 9 * * *" spellcheck="false" placeholder="0 9 * * *"><span>支持 5、6 或 7 个字段。</span></label>
               <input type="hidden" id="workflowScheduleTimezone">
@@ -122,7 +124,7 @@
             </label>
             <dl class="workflow-schedule-summary"><div><dt>下一次执行</dt><dd id="workflowScheduleNext">—</dd></div><div><dt>最近调度</dt><dd id="workflowScheduleLast">—</dd></div><div><dt>最近错过</dt><dd id="workflowScheduleMissed">—</dd></div><div><dt>最近状态</dt><dd class="execution-status" id="workflowScheduleLastStatus">暂无执行</dd></div></dl>
             <div class="workflow-schedule-loading" id="workflowScheduleLoading" hidden>正在读取定时计划…</div>
-            <div class="err-line" id="workflowScheduleError" aria-live="polite"></div>
+            <div class="err-line workflow-schedule-error" id="workflowScheduleError" aria-live="polite"></div>
             <div class="workflow-schedule-actions"><button class="tbtn danger" type="button" id="workflowScheduleDelete" hidden>删除计划</button><button class="tbtn primary" type="button" id="workflowScheduleSave">保存计划</button></div>
           </div>
         </div>
@@ -320,6 +322,7 @@
 
 <div id="toast"></div>
 
+<script type="module" src="theme-bootstrap.mjs"></script>
 <script type="module" src="app.js"></script>
 </body>
 </html>
