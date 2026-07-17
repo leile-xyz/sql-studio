@@ -5,6 +5,7 @@ import { ICO } from './lib/icons.mjs';
 import { ConsoleSessionManager } from './lib/console-session.mjs';
 import { bindAppEvents } from './lib/app-events.mjs';
 import { bindAboutDialog } from './lib/about-dialog.mjs';
+import { bindMcpDialog } from './lib/mcp-dialog.mjs';
 import { bindPluginManager } from './lib/plugin-manager.mjs';
 import { executeConsoleStatement, fetchConsolePage } from './lib/console-execution.mjs';
 import { renderConsoleResultView } from './lib/console-result-view.mjs';
@@ -89,6 +90,7 @@ function bindStatic() {
   $('envMgrCancel').addEventListener('click', () => closeModal('envMgrMask'));
   $('envMgrSave').addEventListener('click', saveEnvMgr);
   bindAboutDialog({ api, toast });
+  bindMcpDialog({ invoke: (command, args) => window.__TAURI__.core.invoke(command, args), toast });
   bindPluginManager({ api, toast }); workflowManager = bindWorkflowManager({ api, toast, getAppState: () => ({ envs: state.envs, activeEnvId: state.activeEnvId, origin: state.origin, username: state.user }) });
   document.addEventListener('click', event => { if (!event.target.closest('#consoleMenu, #consoleAllMenu, [data-act="toggle-console-menu"]')) hideMenus(); });
   window.addEventListener('pagehide', () => consoleSessionManager.flush().catch(reportConsoleSessionError));
@@ -99,6 +101,7 @@ function bindStatic() {
   document.querySelectorAll('.mask').forEach(m =>
     m.addEventListener('click', e => { if (e.target === m) closeModal(m.id); }));
 }
+
 /* ================= 环境 ================= */
 async function applyEnv(id) {
   await consoleSessionManager.flush();
@@ -981,7 +984,6 @@ function selectCell(td) {
   td.classList.add('cell-sel');
   $('sbCell').textContent = `行 ${td.dataset.r} · ${td.dataset.col}`;
 }
-
 /* ================= 弹窗 / toast ================= */
 function openModal(id) { $(id).classList.add('show'); }
 function closeModal(id) { $(id).classList.remove('show'); }
@@ -993,6 +995,5 @@ function toast(msg, kind) {
   box.appendChild(el);
   setTimeout(() => el.remove(), 3600);
 }
-
 /* ================= 启动 ================= */
 init();

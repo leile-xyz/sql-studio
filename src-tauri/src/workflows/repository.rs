@@ -101,7 +101,14 @@ pub fn copy_workflow(connection: &mut Connection, id: &str) -> Result<String, St
 
 pub fn archive_workflow(connection: &Connection, id: &str) -> Result<(), String> {
     let changed = connection.execute("UPDATE workflow_definitions SET enabled=0,deleted_at=?1,updated_at=?1 WHERE id=?2 AND deleted_at IS NULL", params![now(), id]).map_err(db)?;
-    affected(changed, "流程不存在或已删除")
+    affected(changed, "流程不存在或已删除")?;
+    connection
+        .execute(
+            "DELETE FROM workflow_schedules WHERE workflow_id=?1",
+            params![id],
+        )
+        .map_err(db)?;
+    Ok(())
 }
 
 pub fn set_workflow_enabled(

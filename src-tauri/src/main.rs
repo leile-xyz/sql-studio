@@ -5,6 +5,7 @@
 
 mod archery;
 mod background;
+mod mcp;
 mod notifications;
 mod plugins;
 mod scheduler;
@@ -108,6 +109,11 @@ async fn export_csv(
 
 /* ============ 入口 ============ */
 
+#[tauri::command]
+fn mcp_status(host: State<'_, mcp::McpHost>) -> mcp::McpStatus {
+    host.status()
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
@@ -142,6 +148,7 @@ fn main() {
                 data: Mutex::new(data),
             });
             app.manage(archery::ArcheryService::default());
+            app.manage(mcp::start_host());
             app.manage(workflow_db);
             app.manage(scheduler::SchedulerHost::start(app.handle().clone()));
             background::setup_tray(app)?;
@@ -157,6 +164,7 @@ fn main() {
             cred_get,
             cred_delete,
             app_version,
+            mcp_status,
             export_csv,
             plugins::dingtalk::dingtalk_config_status,
             plugins::dingtalk::dingtalk_save_config,

@@ -49,6 +49,12 @@ button { font-family: inherit; }
 .conn.off .dot { background: var(--text-faint); }
 .icon-btn { width: 28px; height: 28px; border: none; background: transparent; color: var(--text-dim); border-radius: 5px; cursor: pointer; font-size: 15px; display: flex; align-items: center; justify-content: center; }
 .icon-btn:hover { background: var(--panel-3); color: var(--text); }
+.topbar-action { width: 30px; height: 30px; }
+.service-action { border: 1px solid transparent; background: transparent; }
+.service-action:hover { border-color: transparent; background: var(--panel-3); }
+.topbar-icon { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.mcp-topbar-icon { width: 16px; height: 17px; background: currentColor; mask: url("assets/mcp.svg") center / contain no-repeat; -webkit-mask: url("assets/mcp.svg") center / contain no-repeat; }
+.topbar-action:hover .topbar-icon { color: var(--text); }
 
 /* ======== 流水线管理 ======== */
 .workflow-page { position: fixed; z-index: 80; inset: 42px 0 26px; background: var(--bg); }
@@ -579,6 +585,36 @@ table.meta { border-collapse: collapse; font-size: 12.5px; min-width: 720px; }
 .chkline .hint { color: var(--text-faint); font-size: 11.5px; }
 .modal .btnrow { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
 .modal .btnrow .tbtn { padding: 7px 18px; font-size: 13px; }
+.modal.mcp-modal { width: min(760px, calc(100vw - 40px)); max-height: calc(100vh - 48px); padding: 0; overflow-y: auto; }
+.mcp-head { display: flex; align-items: center; gap: 13px; padding: 20px 22px 18px; border-bottom: 1px solid var(--border); background: linear-gradient(135deg, rgba(53,116,240,.14), rgba(123,92,240,.05) 55%, transparent); }
+.mcp-head-icon { display: grid; width: 38px; height: 38px; place-items: center; flex: none; color: #fff; border-radius: 10px; background: linear-gradient(135deg, #3574f0, #7b5cf0); font-size: 15px; font-weight: 700; }
+.mcp-head h3 { margin: 0; font-size: 16px; }
+.mcp-head p { margin-top: 4px; color: var(--text-faint); font-size: 11.5px; }
+.mcp-state { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; padding: 5px 9px; color: var(--text-faint); border: 1px solid var(--border-light); border-radius: 999px; background: rgba(255,255,255,.025); font-size: 11.5px; white-space: nowrap; }
+.mcp-state i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.mcp-state.running { color: var(--green); border-color: rgba(95,173,101,.35); background: rgba(95,173,101,.08); }
+.mcp-state.failed { color: var(--red); border-color: rgba(219,92,92,.35); background: rgba(219,92,92,.08); }
+.mcp-body { display: flex; flex-direction: column; gap: 12px; padding: 16px 20px 4px; }
+.mcp-section { padding: 15px 16px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel-2); }
+.mcp-section-title { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; margin-bottom: 13px; }
+.mcp-section-title > div { display: flex; flex-direction: column; gap: 4px; }
+.mcp-section-title strong { font-size: 12.5px; }
+.mcp-section-title span { color: var(--text-faint); font-size: 11px; }
+.mcp-local-tag { flex: none; padding: 3px 7px; color: #9ec1ff !important; border: 1px solid rgba(53,116,240,.32); border-radius: 999px; background: rgba(53,116,240,.08); }
+.mcp-field + .mcp-field { margin-top: 11px; }
+.mcp-field label { display: block; margin-bottom: 5px; color: var(--text-dim); font-size: 11.5px; }
+.mcp-value-row { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 8px; }
+.mcp-value-row code, .mcp-config { border: 1px solid var(--border); border-radius: 7px; background: #24262a; color: var(--text-dim); font: 11.5px/1.55 var(--mono); }
+.mcp-value-row code { min-width: 0; padding: 7px 9px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mcp-copy { min-width: 64px; padding: 5px 10px; font-size: 11.5px; }
+.mcp-config { max-height: 160px; margin: 0; padding: 11px 12px; overflow: auto; white-space: pre-wrap; word-break: break-all; }
+.mcp-tools { display: flex; flex-wrap: wrap; gap: 8px; color: var(--text-faint); font-size: 11.5px; }
+.mcp-tool { display: flex; align-items: center; gap: 9px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 7px; background: #292b30; }
+.mcp-tool code { color: #9ec1ff; font: 11.5px var(--mono); }
+.mcp-tool span { color: var(--text-faint); }
+.mcp-error { padding: 10px 12px; color: #f0aaaa; border: 1px solid rgba(219,92,92,.32); border-radius: 8px; background: rgba(219,92,92,.08); font-size: 11.5px; word-break: break-word; }
+.mcp-actions { margin: 14px 0 0 !important; padding: 14px 20px 18px; border-top: 1px solid var(--border); background: rgba(0,0,0,.08); }
+@media (max-width: 560px) { .mcp-head p, .mcp-section-title span, .mcp-tool span { display: none; } .mcp-body { padding-inline: 14px; } }
 .field-row { display: flex; gap: 10px; }
 .field-row > div { flex: 1; }
 .about-modal { width: 440px; max-width: calc(100vw - 48px); padding: 0; overflow: hidden; }

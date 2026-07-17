@@ -329,7 +329,7 @@ fn due_query(limit: &str) -> String {
          v.database_name,v.database_type,v.schema_name
          FROM workflow_schedules s JOIN workflow_definitions w ON w.id=s.workflow_id
          JOIN workflow_versions v ON v.id=s.workflow_version_id AND v.workflow_id=s.workflow_id
-         WHERE s.enabled=1 AND s.next_run_at<=?1 ORDER BY s.next_run_at {limit}"
+         WHERE s.enabled=1 AND s.next_run_at<=?1 AND w.deleted_at IS NULL ORDER BY s.next_run_at {limit}"
     )
 }
 
@@ -719,6 +719,22 @@ mod tests {
             enqueue_due(&mut connection, DUE).unwrap(),
             Some(DueScheduleResult::Skipped(_))
         ));
+    }
+
+    #[test]
+    fn deleted_workflow_due_time_is_ignored() {
+        let mut connection = connection();
+        upsert(&mut connection, &input("workflow-1", true), BASE).unwrap();
+        connection
+            .execute(
+                "UPDATE workflow_definitions SET enabled=0,deleted_at=?1 WHERE id='workflow-1'",
+                params![BASE],
+            )
+            .unwrap();
+        assert!(enqueue_due(&mut connection, DUE).unwrap().is_none());
+        assert!(skip_missed(&mut connection, "2026-07-16T00:10:00Z")
+            .unwrap()
+            .is_empty());
     }
 
     #[test]

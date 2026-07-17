@@ -46,6 +46,15 @@ pub(crate) struct ArcheryQueryRequest {
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub(crate) struct DescribeTableRequest {
+    pub instance_name: String,
+    pub database_name: String,
+    pub schema_name: Option<String>,
+    pub table_name: String,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct ArcheryQueryResult {
     pub columns: Vec<String>,
     pub column_types: Vec<Value>,
@@ -153,6 +162,41 @@ impl ArcheryService {
         let data = self.post(context, "/query/", &query_form(request)).await?;
         normalize_query_result(data, &request.sql)
     }
+
+    pub(crate) async fn describe_table(
+        &self,
+        context: &SessionContext,
+        request: &DescribeTableRequest,
+    ) -> Result<Value, String> {
+        validate_describe_request(request)?;
+        self.post(context, "/instance/describetable/", &describe_form(request))
+            .await
+    }
+}
+
+fn describe_form(request: &DescribeTableRequest) -> HashMap<String, String> {
+    HashMap::from([
+        ("instance_name".into(), request.instance_name.clone()),
+        ("db_name".into(), request.database_name.clone()),
+        (
+            "schema_name".into(),
+            request.schema_name.clone().unwrap_or_default(),
+        ),
+        ("tb_name".into(), request.table_name.clone()),
+    ])
+}
+
+fn validate_describe_request(request: &DescribeTableRequest) -> Result<(), String> {
+    for (label, value) in [
+        ("实例名", request.instance_name.as_str()),
+        ("数据库名", request.database_name.as_str()),
+        ("表名", request.table_name.as_str()),
+    ] {
+        if value.trim().is_empty() {
+            return Err(format!("{label}不能为空"));
+        }
+    }
+    Ok(())
 }
 
 fn query_form(request: &ArcheryQueryRequest) -> HashMap<String, String> {
