@@ -326,7 +326,7 @@ button { font-family: inherit; }
 .execution-empty-result, .execution-delivery-result { padding: 18px 12px; color: var(--text-faint); text-align: center; border: 1px dashed var(--border-light); border-radius: 6px; font-size: 11px; }
 .message-trigger { position: relative; }
 .message-badge { position: absolute; top: 0; right: 0; min-width: 15px; height: 15px; padding: 0 3px; color: #fff; border-radius: 999px; background: var(--red); font-size: 9px; line-height: 15px; }
-.modal.message-center-modal { display: flex; width: min(1040px, calc(100vw - 40px)); height: min(720px, calc(100vh - 48px)); max-height: calc(100vh - 48px); flex-direction: column; padding: 0; overflow: hidden; }
+.modal.message-center-modal { display: flex; width: min(1240px, calc(100vw - 40px)); height: min(720px, calc(100vh - 48px)); max-height: calc(100vh - 48px); flex-direction: column; padding: 0; overflow: hidden; }
 .message-center-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex: none; min-height: 64px; padding: 12px 20px; border-bottom: 1px solid var(--border); background: transparent; }
 .message-center-heading { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .message-center-icon { display: grid; width: 36px; height: 36px; place-items: center; flex: none; color: var(--text); border: 1px solid var(--border-light); border-radius: 9px; background: var(--panel-3); font-size: 16px; }
