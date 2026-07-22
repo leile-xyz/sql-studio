@@ -11,11 +11,40 @@ const optionHtml = (items, value, label) => items.map(item => `<option value="${
 const pluginDisplayName = node => node.pluginKey === 'dingtalk' ? '钉钉机器人消息' : node.pluginKey === 'message_builder' ? '消息内容编排' : node.name;
 const PLUGIN_PICKER_ORDER = Object.freeze({ message_builder: 0, dingtalk: 1 });
 const requiresPluginConfiguration = resource => resource.pluginKey === 'dingtalk';
+const REQUEST_CHANNEL = Object.freeze({ list: 'list', selection: 'selection', source: 'source', history: 'history' });
+
+export function createWorkflowRequestGate(getEnvironmentId) {
+  let generations = Object.freeze({});
+  const advance = channel => {
+    const generation = (generations[channel] || 0) + 1;
+    generations = Object.freeze({ ...generations, [channel]: generation });
+    return generation;
+  };
+  return Object.freeze({
+    begin: ({ channel, subjectId = null }) => Object.freeze({
+      channel, subjectId, generation: advance(channel),
+      environmentId: String(getEnvironmentId() || ''),
+    }),
+    invalidate: channels => channels.forEach(advance),
+    isCurrent: request => request.generation === generations[request.channel]
+      && request.environmentId === String(getEnvironmentId() || ''),
+  });
+}
+
+export async function commitLatestWorkflowRequest({ gate, request, load, commit }) {
+  const value = await load();
+  if (!gate.isCurrent(request)) return false;
+  commit(value);
+  return true;
+}
 
 export function bindWorkflowManager({ api, toast, getAppState, workflows = workflowApi, schedules = workflowScheduleApi }) {
   bindMessageCenter({ toast });
   const get = id => document.getElementById(id);
-  const state = { items: [], draft: null, resources: [], loading: false };
+  const state = {
+    items: [], draft: null, resources: [], loading: false,
+    requests: createWorkflowRequestGate(() => getAppState().activeEnvId),
+  };
   const context = Object.freeze({ api, toast, getAppState, workflows, get, state });
   state.history = bindWorkflowHistory(context);
   state.schedule = bindWorkflowSchedule({
@@ -49,27 +78,46 @@ export function bindWorkflowManager({ api, toast, getAppState, workflows = workf
 }
 
 async function environmentChanged(context) {
-  if (context.get('workflowPage').hidden) return;
+  context.state.requests.invalidate([REQUEST_CHANNEL.list]);
+  context.state.items = [];
   showEmpty(context);
+  if (context.get('workflowPage').hidden) return;
   await loadList(context);
 }
 
 async function openManager(context) {
   context.get('workflowPage').hidden = false;
+  const request = context.state.requests.begin({ channel: REQUEST_CHANNEL.list });
   try {
-    const { activeEnvId } = context.getAppState();
-    const [items, resources] = await Promise.all([context.workflows.list(activeEnvId), context.workflows.pluginResources()]);
-    context.state.items = items || [];
-    context.state.resources = (resources || []).filter(resource => resource.enabled !== false);
-    renderList(context);
-  } catch (error) { context.toast('读取流水线失败：' + error.message, 'err'); }
+    await commitLatestWorkflowRequest({
+      gate: context.state.requests,
+      request,
+      load: () => Promise.all([context.workflows.list(request.environmentId), context.workflows.pluginResources()]),
+      commit: ([items, resources]) => {
+        context.state.items = items || [];
+        context.state.resources = (resources || []).filter(resource => resource.enabled !== false);
+        renderList(context);
+      },
+    });
+  } catch (error) { reportRequestError(context, request, '读取流水线失败', error); }
 }
 
 async function loadList(context, selectedId) {
+  const request = context.state.requests.begin({ channel: REQUEST_CHANNEL.list, subjectId: selectedId });
   try {
-    context.state.items = await context.workflows.list(context.getAppState().activeEnvId) || [];
-    renderList(context, selectedId);
-  } catch (error) { context.toast('刷新流水线失败：' + error.message, 'err'); }
+    return await commitLatestWorkflowRequest({
+      gate: context.state.requests,
+      request,
+      load: () => context.workflows.list(request.environmentId),
+      commit: items => {
+        context.state.items = items || [];
+        renderList(context, selectedId);
+      },
+    });
+  } catch (error) {
+    reportRequestError(context, request, '刷新流水线失败', error);
+    return false;
+  }
 }
 
 function renderList(context, selectedId = context.state.draft?.id) {
@@ -84,15 +132,27 @@ function renderList(context, selectedId = context.state.draft?.id) {
 async function selectWorkflow(context, event) {
   const item = event.target.closest('[data-id]');
   if (!item) return;
+  const workflowId = item.dataset.id;
+  context.state.requests.invalidate([REQUEST_CHANNEL.source, REQUEST_CHANNEL.history]);
+  const request = context.state.requests.begin({ channel: REQUEST_CHANNEL.selection, subjectId: workflowId });
   try {
-    context.state.draft = normalizeWorkflow(await context.workflows.get(item.dataset.id));
-    renderEditor(context);
-    renderList(context, item.dataset.id);
+    const committed = await commitLatestWorkflowRequest({
+      gate: context.state.requests,
+      request,
+      load: async () => normalizeWorkflow(await context.workflows.get(workflowId)),
+      commit: draft => {
+        context.state.draft = draft;
+        renderEditor(context);
+        renderList(context, workflowId);
+      },
+    });
+    if (!committed) return;
     await Promise.all([loadSourceOptions(context), context.state.history.load(), context.state.schedule.load(context.state.draft)]);
-  } catch (error) { context.toast('读取流程详情失败：' + error.message, 'err'); }
+  } catch (error) { reportRequestError(context, request, '读取流程详情失败', error); }
 }
 
 function beginCreate(context) {
+  context.state.requests.invalidate([REQUEST_CHANNEL.selection, REQUEST_CHANNEL.source, REQUEST_CHANNEL.history]);
   const { envs, activeEnvId } = context.getAppState();
   context.state.draft = createWorkflowDraft(activeEnvId || envs[0]?.id || '');
   renderEditor(context);
@@ -157,18 +217,29 @@ async function resetSource(context, level) {
 async function loadSourceOptions(context) {
   const source = context.state.draft.dataSource;
   const { activeEnvId, origin } = context.getAppState();
+  const request = context.state.requests.begin({ channel: REQUEST_CHANNEL.source, subjectId: context.state.draft.id });
   if (source.environmentId !== activeEnvId) throw new Error('请先在主界面切换并登录所选环境');
   context.get('workflowSourceError').textContent = '';
-  const instances = await context.api.instances(origin);
-  fillInstances(context, instances, source.instanceId);
-  if (!source.instanceId) { clearDatabaseOptions(context); return; }
-  const selected = instances.find(item => String(item.id) === String(source.instanceId) || item.instance_name === source.instanceName);
-  if (!selected) { clearDatabaseOptions(context); return; }
-  const databases = await context.api.databases(origin, selected.instance_name);
-  fillDatabases(context, databases, source.databaseName);
-  if (!source.databaseName || !isPostgres(selected.db_type)) { toggleSchema(context, false); return; }
-  const schemas = await context.api.schemas(origin, { instance: selected.instance_name, db: source.databaseName });
-  fillSchemas(context, schemas, source.schemaName);
+  try {
+    const instances = await context.api.instances(origin);
+    if (!context.state.requests.isCurrent(request)) return false;
+    fillInstances(context, instances, source.instanceId);
+    if (!source.instanceId) { clearDatabaseOptions(context); return true; }
+    const selected = instances.find(item => String(item.id) === String(source.instanceId) || item.instance_name === source.instanceName);
+    if (!selected) { clearDatabaseOptions(context); return true; }
+    const databases = await context.api.databases(origin, selected.instance_name);
+    if (!context.state.requests.isCurrent(request)) return false;
+    fillDatabases(context, databases, source.databaseName);
+    if (!source.databaseName || !isPostgres(selected.db_type)) { toggleSchema(context, false); return true; }
+    const schemas = await context.api.schemas(origin, { instance: selected.instance_name, db: source.databaseName });
+    if (!context.state.requests.isCurrent(request)) return false;
+    fillSchemas(context, schemas, source.schemaName);
+    return true;
+  } catch (error) {
+    if (context.state.requests.isCurrent(request)) throw error;
+    console.error('[SQL Studio] 读取流水线数据源失败（请求已过期）', error);
+    return false;
+  }
 }
 
 function clearDatabaseOptions(context) {
@@ -348,9 +419,18 @@ async function runItemAction(context, event) {
 }
 
 function showEmpty(context) {
+  context.state.requests.invalidate([REQUEST_CHANNEL.selection, REQUEST_CHANNEL.source, REQUEST_CHANNEL.history]);
   context.state.draft = null;
   context.get('workflowForm').hidden = true;
   context.get('workflowEmpty').hidden = false;
   context.state.schedule.clear();
   renderList(context, null);
+}
+
+function reportRequestError(context, request, message, error) {
+  if (context.state.requests.isCurrent(request)) {
+    context.toast(`${message}：${error.message}`, 'err');
+    return;
+  }
+  console.error(`[SQL Studio] ${message}（请求已过期）`, error);
 }

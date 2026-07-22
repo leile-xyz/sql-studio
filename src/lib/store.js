@@ -11,6 +11,7 @@ const KEY_HISTORY = 'sqls_history';   // { [envId]: [ {sql, instance, db, schema
 const KEY_CONSOLE_DRAFTS = 'sqls_console_drafts'; // { [envId]: {sql, instance, db, schema, dbType, updatedAt} }
 const KEY_CONSOLE_SESSIONS = 'sqls_console_sessions'; // { [envId]: {consoles, activeConsoleKey, nextSequence} }
 const HISTORY_LIMIT = 100;
+const mutationQueues = new Map();
 
 /** 默认内置环境来自应用根目录的 default-envs.json（base 为域名或 IP:端口，不含协议）。
  *  仅在本地尚无环境配置时作为初始值写入，之后以「环境管理」中的配置为准。 */
@@ -34,6 +35,15 @@ function invoke(cmd, args) {
 const kvGet = key => invoke('kv_get', { key });
 const kvSet = (key, value) => invoke('kv_set', { key, value });
 
+function runKeyMutation(key, operation) {
+    const previous = mutationQueues.get(key) || Promise.resolve();
+    const current = previous.then(operation, operation);
+    mutationQueues.set(key, current);
+    return current.finally(() => {
+        if (mutationQueues.get(key) === current) mutationQueues.delete(key);
+    });
+}
+
 /* ---------------- 环境 ---------------- */
 
 export async function getEnvs() {
@@ -48,6 +58,18 @@ export async function getEnvs() {
 }
 
 export async function saveEnvs(envs) {
+    await kvSet(KEY_ENVS, envs);
+}
+
+export async function replaceEnvs(envs) {
+    if (!Array.isArray(envs)) throw new Error('本地环境配置格式无效');
+    const stored = await kvGet(KEY_ENVS);
+    if (stored != null && !Array.isArray(stored)) throw new Error('本地环境配置格式无效');
+    const nextIds = new Set(envs.map(env => env.id));
+    const removedIds = (stored || [])
+        .map(env => env && env.id)
+        .filter(id => id && !nextIds.has(id));
+    for (const envId of removedIds) await clearEnvCredentials(envId);
     await kvSet(KEY_ENVS, envs);
 }
 
@@ -79,11 +101,8 @@ export async function upsertEnv(env) {
 
 export async function removeEnv(id) {
     const envs = (await getEnvs()).filter(e => e.id !== id);
+    await clearEnvCredentials(id);
     await saveEnvs(envs);
-    const creds = await getAllCreds();
-    delete creds[id];
-    await kvSet(KEY_CREDS, creds);
-    await invoke('cred_delete', { envId: id });
     return envs;
 }
 
@@ -97,6 +116,16 @@ export function envOrigin(env) {
 
 async function getAllCreds() {
     return (await kvGet(KEY_CREDS)) || {};
+}
+
+async function clearEnvCredentials(envId) {
+    const creds = await getAllCreds();
+    if (Object.hasOwn(creds, envId)) {
+        const nextCreds = { ...creds };
+        delete nextCreds[envId];
+        await kvSet(KEY_CREDS, nextCreds);
+    }
+    await invoke('cred_delete', { envId });
 }
 
 /** 读取某环境凭据，remember 时从 Windows 凭据管理器取回明文密码 */
@@ -146,17 +175,21 @@ export async function getHistory(envId) {
 }
 
 export async function addHistory(envId, item) {
-    const all = (await kvGet(KEY_HISTORY)) || {};
-    const list = all[envId] || [];
-    list.unshift(item);
-    all[envId] = list.slice(0, HISTORY_LIMIT);
-    await kvSet(KEY_HISTORY, all);
+    return runKeyMutation(KEY_HISTORY, async () => {
+        const all = (await kvGet(KEY_HISTORY)) || {};
+        const list = all[envId] || [];
+        const next = { ...all, [envId]: [item, ...list].slice(0, HISTORY_LIMIT) };
+        await kvSet(KEY_HISTORY, next);
+    });
 }
 
 export async function clearHistory(envId) {
-    const all = (await kvGet(KEY_HISTORY)) || {};
-    delete all[envId];
-    await kvSet(KEY_HISTORY, all);
+    return runKeyMutation(KEY_HISTORY, async () => {
+        const all = (await kvGet(KEY_HISTORY)) || {};
+        const next = { ...all };
+        delete next[envId];
+        await kvSet(KEY_HISTORY, next);
+    });
 }
 
 /* ---------------- 控制台草稿 ---------------- */

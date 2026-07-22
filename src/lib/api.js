@@ -25,6 +25,7 @@ const resource = (origin, params) =>
     get(origin, '/instance/instance_resource/?' + new URLSearchParams(params));
 
 export const api = {
+    clearSessions: () => sessions.clear(),
     setSession: (envId, username, origin) => {
         if (!envId || !username || !origin) throw new Error('Archery 会话上下文不完整');
         sessions.set(origin, Object.freeze({ envId, username, origin }));

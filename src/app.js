@@ -19,6 +19,7 @@ import { buildBrowseSql, buildCountSql, findDbType, isPostgresType, parseCountTo
 import { renderTabBarView, showAllConsolesMenu, showConsoleMenu, showTabContextMenu } from './lib/console-menu-view.mjs';
 import { ConsoleRenameController } from './lib/console-rename.mjs';
 import { closeWorkspaceTabs, consoleSessionState, createNewConsole, defaultConsoleTab, deleteWorkspaceConsole, restoreConsoleWorkspace } from './lib/console-workspace.mjs';
+import { createUiSnapshot, loadInitialUiState, registerNativeCloseHandler, restoreUiSnapshot } from './lib/native-lifecycle.mjs';
 import { bindWorkflowManager } from './lib/workflow-manager.mjs';
 const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const attr = s => String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -55,12 +56,14 @@ const autocomplete = new SqlAutocomplete({
   onWhereChange: value => { const tab = curTab(); if (tab) tab.whereDraft = value; },
   onError: (message, error) => console.error('[SQL Studio] ' + message, error),
 });
-/* ================= 初始化 ================= */ async function init() {
+/* ================= 初始化 ================= */ async function initializeApp() {
   bindStatic();
   bindDelegation();
+  let initial;
   try {
-    state.envs = await store.getEnvs();
-    state.activeEnvId = await store.getActiveEnvId();
+    initial = await loadInitialUiState(store);
+    state.envs = initial.envs;
+    state.activeEnvId = initial.activeEnvId;
   } catch (e) {
     renderTabs(); renderBody(); renderTree(); renderEnvUI();
     toast('读取环境配置失败：' + e.message, 'err');
@@ -69,9 +72,10 @@ const autocomplete = new SqlAutocomplete({
   renderTabs();
   renderBody();
   await applyEnv(state.activeEnvId);
+  Object.assign(state, restoreUiSnapshot({ snapshot: initial.uiSnapshot, tabs: state.tabs, tabSeq: state.tabSeq, activeTabId: state.activeTabId, activeConsoleKey: state.activeConsoleKey, activeEnvId: state.activeEnvId })); $('main').classList.toggle('sidebar-collapsed', state.sidebarCollapsed); renderTabs(); renderBody(); renderTree();
   if (!state.env) { openEnvMgr(); return; }
   await ensureConnected();
-}
+} function init() { const task = initializeApp(); task.then(resolveInitialization, rejectInitialization); return task; }
 function bindStatic() {
   consoleRename.bind();
   $('envBtn').addEventListener('click', e => { e.stopPropagation(); toggleEnvMenu(); });
@@ -210,7 +214,7 @@ async function onConnected() {
   state.connecting = false;
   renderEnvUI();
   renderBody();
-  await loadInstances();
+  await loadInstances(); const tab = curTab(); if (tab?.type === 'table') ensureTableLoaded(tab);
 }
 /* ================= 登录 ================= */
 function openLogin(envId) {
@@ -335,7 +339,7 @@ async function saveEnvMgr() {
   const envs = collectEnvMgr().filter(e => e.base);
   if (!envs.length) { toast('至少保留一个带域名的环境', 'err'); return; }
   try {
-    await store.saveEnvs(envs);
+    await store.replaceEnvs(envs);
     state.envs = envs;
     closeModal('envMgrMask');
     await applyEnv(envs.find(e => e.id === state.activeEnvId) ? state.activeEnvId : envs[0].id);
@@ -990,4 +994,6 @@ function toast(msg, kind) {
   setTimeout(() => el.remove(), 3600);
 }
 /* ================= 启动 ================= */
+let resolveInitialization, rejectInitialization; const initialization = new Promise((resolve, reject) => { resolveInitialization = resolve; rejectInitialization = reject; });
+await registerNativeCloseHandler({ flush: async () => { document.body.inert = true; await initialization; await consoleSessionManager.flush(); }, snapshot: () => createUiSnapshot(state), cleanup: () => api.clearSessions(), onError: error => { document.body.inert = false; console.error('[SQL Studio] 窗口关闭清理失败', error); toast('窗口关闭清理失败：' + error.message, 'err'); } });
 init();

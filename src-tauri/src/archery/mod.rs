@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use reqwest::{
     cookie::{CookieStore, Jar},
@@ -11,6 +11,7 @@ use tokio::sync::Mutex;
 
 const USER_AGENT: &str = "Mozilla/5.0 (SQL Studio Desktop)";
 const NETWORK_ERROR: &str = "网络请求失败，请检查是否连入内网 / 域名是否可达";
+const ARCHERY_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 pub(crate) const DEFAULT_QUERY_LIMIT: u32 = 100;
 
 #[derive(Clone, Debug, Deserialize, Eq, Hash, PartialEq)]
@@ -91,6 +92,10 @@ struct SessionClient {
 pub struct ArcheryService(Mutex<HashMap<SessionContext, Arc<SessionClient>>>);
 
 impl ArcheryService {
+    pub(crate) async fn session_count(&self) -> usize {
+        self.0.lock().await.len()
+    }
+
     pub(crate) async fn has_session(&self, context: &SessionContext) -> bool {
         let Ok(context) = validate_context(context) else {
             return false;
@@ -313,6 +318,7 @@ fn build_client() -> Result<SessionClient, String> {
         .user_agent(USER_AGENT)
         .no_proxy()
         .danger_accept_invalid_certs(true)
+        .timeout(ARCHERY_REQUEST_TIMEOUT)
         .build()
         .map_err(|error| error.to_string())?;
     Ok(SessionClient { client, jar })
@@ -487,6 +493,11 @@ mod tests {
         assert!(validate_context(&context("https://user:pass@example.com/path")).is_err());
         assert!(validate_path("https://evil.example.com/api").is_err());
         assert!(validate_path("//evil.example.com/api").is_err());
+    }
+
+    #[test]
+    fn request_timeout_is_explicit_and_bounded() {
+        assert_eq!(ARCHERY_REQUEST_TIMEOUT, Duration::from_secs(30));
     }
 
     #[test]

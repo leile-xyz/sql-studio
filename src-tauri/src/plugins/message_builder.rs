@@ -152,15 +152,148 @@ fn render_template(
     input: &Value,
     rows: &[Map<String, Value>],
 ) -> Result<String, String> {
-    let workflow_rendered = template.replace("{{workflow.name}}", workflow_name);
-    let table_rendered = workflow_rendered.replace("{{table}}", &render_markdown_table(input)?);
-    let rows_rendered = render_row_blocks(&table_rendered, rows)?;
     let object = input.as_object().cloned().unwrap_or_default();
-    let rendered = replace_fields(rows_rendered, "object.", &object)?;
-    if rendered.contains("{{") || rendered.contains("}}") {
+    let table = render_markdown_table(input)?;
+    render_template_segment(
+        template,
+        &TemplateRenderContext {
+            workflow_name,
+            table: &table,
+            object: &object,
+            rows,
+            row: None,
+            allow_row_blocks: true,
+        },
+    )
+}
+
+#[derive(Clone, Copy)]
+struct TemplateRenderContext<'a> {
+    workflow_name: &'a str,
+    table: &'a str,
+    object: &'a Map<String, Value>,
+    rows: &'a [Map<String, Value>],
+    row: Option<&'a Map<String, Value>>,
+    allow_row_blocks: bool,
+}
+
+fn render_template_segment(
+    template: &str,
+    context: &TemplateRenderContext<'_>,
+) -> Result<String, String> {
+    let mut output = String::new();
+    let mut cursor = 0;
+    while let Some(relative_start) = template[cursor..].find("{{") {
+        let start = cursor + relative_start;
+        append_template_literal(&mut output, &template[cursor..start])?;
+        let content_start = start + "{{".len();
+        let relative_end = template[content_start..]
+            .find("}}")
+            .ok_or_else(|| "消息模板变量缺少结束标记".to_string())?;
+        let end = content_start + relative_end;
+        let marker = &template[content_start..end];
+        let (next_cursor, rendered) = render_marker(
+            template,
+            TemplateMarker {
+                content: marker,
+                end: end + "}}".len(),
+            },
+            context,
+        )?;
+        output.push_str(&rendered);
+        cursor = next_cursor;
+    }
+    append_template_literal(&mut output, &template[cursor..])?;
+    Ok(output)
+}
+
+fn append_template_literal(output: &mut String, literal: &str) -> Result<(), String> {
+    if literal.contains("}}") {
         return Err("消息模板包含未解析的变量或不完整标记".into());
     }
-    Ok(rendered)
+    output.push_str(literal);
+    Ok(())
+}
+
+struct TemplateMarker<'a> {
+    content: &'a str,
+    end: usize,
+}
+
+fn render_marker(
+    template: &str,
+    marker: TemplateMarker<'_>,
+    context: &TemplateRenderContext<'_>,
+) -> Result<(usize, String), String> {
+    if marker.content == "#rows" {
+        return render_rows_block(template, marker.end, context);
+    }
+    if marker.content == "/rows" {
+        return Err("消息模板包含多余的 {{/rows}}".into());
+    }
+    Ok((marker.end, render_variable(marker.content, context)?))
+}
+
+fn render_rows_block(
+    template: &str,
+    block_start: usize,
+    context: &TemplateRenderContext<'_>,
+) -> Result<(usize, String), String> {
+    if !context.allow_row_blocks {
+        return Err("消息模板不支持嵌套 {{#rows}}".into());
+    }
+    let relative_end = template[block_start..]
+        .find("{{/rows}}")
+        .ok_or_else(|| "消息模板缺少 {{/rows}}".to_string())?;
+    let block_end = block_start + relative_end;
+    let block = &template[block_start..block_end];
+    if block.contains("{{#rows}}") {
+        return Err("消息模板不支持嵌套 {{#rows}}".into());
+    }
+    let mut output = String::new();
+    for row in context.rows {
+        output.push_str(&render_template_segment(
+            block,
+            &TemplateRenderContext {
+                row: Some(row),
+                allow_row_blocks: false,
+                ..*context
+            },
+        )?);
+    }
+    Ok((block_end + "{{/rows}}".len(), output))
+}
+
+fn render_variable(marker: &str, context: &TemplateRenderContext<'_>) -> Result<String, String> {
+    match marker {
+        "workflow.name" => Ok(context.workflow_name.to_string()),
+        "table" => Ok(context.table.to_string()),
+        "row" => context
+            .row
+            .map(|row| Value::Object(row.clone()).to_string())
+            .ok_or_else(|| "消息模板变量 {{row}} 只能在 rows 区块内使用".to_string()),
+        _ => render_field(marker, context),
+    }
+}
+
+fn render_field(marker: &str, context: &TemplateRenderContext<'_>) -> Result<String, String> {
+    if let Some(key) = marker.strip_prefix("object.") {
+        return context
+            .object
+            .get(key)
+            .map(value_text)
+            .ok_or_else(|| format!("消息模板字段不存在：object.{key}"));
+    }
+    if let Some(key) = marker.strip_prefix("row.") {
+        let row = context
+            .row
+            .ok_or_else(|| "消息模板 row 字段只能在 rows 区块内使用".to_string())?;
+        return row
+            .get(key)
+            .map(value_text)
+            .ok_or_else(|| format!("消息模板字段不存在：row.{key}"));
+    }
+    Err(format!("消息模板包含未解析的变量：{{{{{marker}}}}}"))
 }
 
 fn render_markdown_table(input: &Value) -> Result<String, String> {
@@ -199,54 +332,6 @@ fn markdown_line(cells: &[String]) -> String {
             .collect::<Vec<_>>()
             .join(" | ")
     )
-}
-
-fn render_row_blocks(template: &str, rows: &[Map<String, Value>]) -> Result<String, String> {
-    let mut output = template.to_string();
-    loop {
-        let Some(start) = output.find("{{#rows}}") else {
-            break;
-        };
-        let content_start = start + "{{#rows}}".len();
-        let relative_end = output[content_start..]
-            .find("{{/rows}}")
-            .ok_or_else(|| "消息模板缺少 {{/rows}}".to_string())?;
-        let end = content_start + relative_end;
-        let block = &output[content_start..end];
-        let rendered = rows
-            .iter()
-            .map(|row| render_row(block, row))
-            .collect::<Result<Vec<_>, _>>()?
-            .join("");
-        output.replace_range(start..end + "{{/rows}}".len(), &rendered);
-    }
-    Ok(output)
-}
-
-fn render_row(block: &str, row: &Map<String, Value>) -> Result<String, String> {
-    let rendered = block.replace("{{row}}", &Value::Object(row.clone()).to_string());
-    replace_fields(rendered, "row.", row)
-}
-
-fn replace_fields(
-    mut template: String,
-    prefix: &str,
-    values: &Map<String, Value>,
-) -> Result<String, String> {
-    let marker = format!("{{{{{prefix}");
-    while let Some(start) = template.find(&marker) {
-        let key_start = start + marker.len();
-        let relative_end = template[key_start..]
-            .find("}}")
-            .ok_or_else(|| "消息模板变量缺少结束标记".to_string())?;
-        let end = key_start + relative_end;
-        let key = &template[key_start..end];
-        let value = values
-            .get(key)
-            .ok_or_else(|| format!("消息模板字段不存在：{prefix}{key}"))?;
-        template.replace_range(start..end + 2, &value_text(value));
-    }
-    Ok(template)
 }
 
 fn value_text(value: &Value) -> String {
@@ -379,5 +464,58 @@ mod tests {
         )
         .unwrap_err();
         assert!(error.contains("字段不存在"));
+    }
+
+    #[test]
+    fn treats_template_markers_from_row_values_as_plain_text() {
+        let bytes = table_cbor(json!([["{{row.name}}", "{{#rows}}x{{/rows}}"]]));
+        let output = build_message(
+            &json!({
+                "format":"text",
+                "bodyTemplate":"{{#rows}}{{row.name}} | {{row.amount}}{{/rows}}"
+            }),
+            MessageBuildContext {
+                workflow_name: "日报",
+                input_type: "table",
+                input_cbor: &bytes,
+            },
+        )
+        .unwrap();
+        assert_eq!(output.body, "{{row.name}} | {{#rows}}x{{/rows}}");
+    }
+
+    #[test]
+    fn treats_template_markers_from_object_values_as_plain_text() {
+        let mut bytes = Vec::new();
+        ciborium::into_writer(
+            &json!({"content": "{{object.content}} and {{unknown}}"}),
+            &mut bytes,
+        )
+        .unwrap();
+        let output = build_message(
+            &json!({"format":"text","bodyTemplate":"{{object.content}}"}),
+            MessageBuildContext {
+                workflow_name: "命令",
+                input_type: "object",
+                input_cbor: &bytes,
+            },
+        )
+        .unwrap();
+        assert_eq!(output.body, "{{object.content}} and {{unknown}}");
+    }
+
+    #[test]
+    fn rejects_unknown_variables_in_original_template() {
+        let bytes = table_cbor(json!([["A", 10]]));
+        let error = build_message(
+            &json!({"format":"text","bodyTemplate":"{{unknown}}"}),
+            MessageBuildContext {
+                workflow_name: "日报",
+                input_type: "table",
+                input_cbor: &bytes,
+            },
+        )
+        .unwrap_err();
+        assert!(error.contains("未解析的变量"));
     }
 }

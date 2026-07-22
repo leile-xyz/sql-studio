@@ -28,11 +28,19 @@ async function runManual(context) {
 async function loadHistory(context, selectedId) {
   const workflowId = context.state.draft?.id;
   if (!workflowId) return clearHistory(context);
+  const request = context.state.requests.begin({ channel: 'history', subjectId: workflowId });
   try {
     const items = await context.workflows.executions(workflowId) || [];
+    if (!context.state.requests.isCurrent(request)) return;
     context.get('workflowHistoryList').innerHTML = renderExecutionList(items, selectedId);
-    if (selectedId) await showExecution(context, selectedId);
-  } catch (error) { context.get('workflowHistoryDetail').innerHTML = `<div class="err-line">${escapeHtml(error.message)}</div>`; }
+    if (selectedId) await showExecution(context, selectedId, request);
+  } catch (error) {
+    if (!context.state.requests.isCurrent(request)) {
+      console.error('[SQL Studio] 读取流水线历史失败（请求已过期）', error);
+      return;
+    }
+    context.get('workflowHistoryDetail').innerHTML = `<div class="err-line">${escapeHtml(error.message)}</div>`;
+  }
 }
 
 export function renderExecutionList(items, selectedId) {
@@ -45,14 +53,24 @@ async function openExecution(context, event) {
   if (id) await showExecution(context, id);
 }
 
-async function showExecution(context, id) {
+async function showExecution(context, id, currentRequest) {
+  const request = currentRequest || context.state.requests.begin({ channel: 'history', subjectId: id });
   const detail = context.get('workflowHistoryDetail');
   detail.innerHTML = '<div class="workflow-history-empty">读取执行详情…</div>';
-  try { detail.innerHTML = renderExecutionDetail(await context.workflows.execution(id)); }
-  catch (error) { detail.innerHTML = `<div class="err-line">${escapeHtml(error.message)}</div>`; }
+  try {
+    const execution = await context.workflows.execution(id);
+    if (context.state.requests.isCurrent(request)) detail.innerHTML = renderExecutionDetail(execution);
+  } catch (error) {
+    if (!context.state.requests.isCurrent(request)) {
+      console.error('[SQL Studio] 读取执行详情失败（请求已过期）', error);
+      return;
+    }
+    detail.innerHTML = `<div class="err-line">${escapeHtml(error.message)}</div>`;
+  }
 }
 
 function clearHistory(context) {
+  context.state.requests.invalidate(['history']);
   context.get('workflowHistoryList').innerHTML = '<div class="workflow-history-empty">保存并发布后可手动执行。</div>';
   context.get('workflowHistoryDetail').innerHTML = '';
 }

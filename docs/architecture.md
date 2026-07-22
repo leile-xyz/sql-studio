@@ -1,18 +1,19 @@
 # 架构说明
 
-SQL Studio `main` 分支是 Windows 桌面应用，不增加自有服务端。WebView2 前端负责界面和业务编排，Tauri Rust 宿主负责网络、Django 会话、凭据和原生文件对话框。
+SQL Studio `main` 分支是 Windows 桌面应用，不增加自有服务端。Tauri Rust 宿主始终负责配置、Django 会话、凭据、后台任务、托盘和 WebView 生命周期；WebView2 前端只在主界面打开时负责界面和交互编排。
 
 ```text
 ┌───────────────────────────────┐
-│ WebView2 前端                 │
-│ editor / tree / grid / store  │
+│ WebView2 Shell UI（按需/可销毁）│
+│ editor / tree / grid          │
 └───────────────┬───────────────┘
-               │ Tauri invoke
+                │ Tauri invoke
 ┌───────────────▼───────────────┐
-│ Rust 宿主                     │
+│ Rust Native Core              │
+│ state / tray / scheduler / MCP│
 │ reqwest / Cookie Jar / keyring│
 └───────────────┬───────────────┘
-               │ HTTP(S)
+                │ HTTP(S)
         ┌──────▼──────┐
         │   Archery   │
         └─────────────┘
@@ -48,6 +49,14 @@ SQL Studio `main` 分支是 Windows 桌面应用，不增加自有服务端。We
 
 前端通过 `src/lib/api.js` 调用 Tauri command。Rust 错误以 rejected invoke 显式返回，前端不生成模拟结果或默认成功状态。
 
+## 轻量模式与 WebView 生命周期
+
+`tauri.conf.json` 中的 `main` 仅作为窗口模板并设置 `create: false`。启动时 Rust 先加载 `store.json`、凭据、MCP、调度器和托盘，再读取 `lightweight_mode`：正常模式用 `WebviewWindowBuilder::from_config` 创建一个主窗口，轻量模式不创建任何 WebviewWindow。
+
+托盘左键、“打开主界面”和单实例唤醒统一走 create-or-focus：窗口存在时显示并聚焦，窗口已销毁时按模板重建，同一时刻由原生创建锁保证只有一个 `main`。右键菜单不提供设置或状态项；“进入轻量模式”是无勾选态的一次性动作，点击后持久化轻量启动偏好并发起主窗口销毁。`mode.lightweight` 表示当前是否没有 UI，`mode.startupLightweight` 表示持久化的下次冷启动偏好，两者在窗口关闭后可以不同。关闭按钮只触发关闭握手，不退出进程：前端先刷新控制台会话并写入 `ui_snapshot`，随后确认关闭；Rust 保存原生窗口位置、销毁已注册的 `workspace-*` WebView，再销毁主 WebView。最后一个窗口销毁产生的无退出码请求由原生事件循环拦截，托盘“退出”通过显式退出码结束进程。
+
+新页面加载时首先调用 `bootstrap_state`。快照包含完整非敏感 KV 持久状态、轻量/窗口状态、WebView 代际、已注册 Workspace WebView、Archery 会话数量、调度器托管状态和 MCP 运行状态。密码仍只在 Windows 凭据管理器中，不进入 bootstrap。
+
 ## PostgreSQL schema
 
 `schema_name` 从资源树一路贯穿标签页、表结构、查询、控制台、历史、会话恢复和自动联想缓存。缓存键包含 origin、实例、数据库、schema 和表，避免不同 schema 下同名表共享字段元数据。
@@ -56,7 +65,7 @@ SQL Studio `main` 分支是 Windows 桌面应用，不增加自有服务端。We
 
 标签栏由固定控制台入口和独立滚动的标签区组成。每个环境保存全部控制台，包括稳定标识、标题、SQL、实例、数据库、schema、数据库类型、编辑器高度和打开状态；查询结果与运行状态不持久化。关闭控制台只把它从标签栏隐藏，下拉列表仍保留记录，点击后按稳定标识重新打开；菜单项支持重命名，删除图标会从当前环境目录永久移除该控制台，但不会清除独立 SQL 执行历史。
 
-旧版本每环境单草稿首次读取时会迁移成 `console` 控制台。输入采用 300ms 防抖保存，新建、关闭、重开、切换环境和页面隐藏时会刷新待写入会话；写入串行执行，避免旧快照晚于新快照覆盖。
+旧版本每环境单草稿首次读取时会迁移成 `console` 控制台。输入采用 300ms 防抖保存，新建、关闭、重开、切换环境、页面隐藏和 WebView 销毁握手时会刷新待写入会话；写入串行执行，避免旧快照晚于新快照覆盖。
 
 数据库树收起仅切换布局类，树节点、搜索内容、已加载数据和选择状态保留；收起后由独立窄栏提供重新展开入口。
 

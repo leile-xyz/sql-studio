@@ -39,6 +39,14 @@ async function testRequiredProjectFiles() {
   }
 }
 
+async function testCiRunsRustTests() {
+  const workflow = await readUtf8('.github/workflows/ci.yml');
+  assert.ok(
+    workflow.includes('cargo test --locked --manifest-path src-tauri/Cargo.toml'),
+    'CI must run the locked Rust test suite',
+  );
+}
+
 async function testVersionAndLicenseMetadata() {
   const packageJson = JSON.parse(await readUtf8('package.json'));
   const packageLock = JSON.parse(await readUtf8('package-lock.json'));
@@ -97,17 +105,52 @@ async function testTreeConsoleContextIsolation() {
   assert.ok(html.includes('id="treeContextMenu"'));
 }
 
-async function testDesktopBackgroundMode() {
+async function testDesktopLightweightMode() {
   const cargoToml = await readUtf8('src-tauri/Cargo.toml');
+  const tauriConfig = JSON.parse(await readUtf8('src-tauri/tauri.conf.json'));
+  const e2eConfig = JSON.parse(await readUtf8('test/tauri.e2e.conf.json'));
   const mainSource = await readUtf8('src-tauri/src/main.rs');
   const backgroundSource = await readUtf8('src-tauri/src/background.rs');
+  const lifecycleSource = await readUtf8('src-tauri/src/lifecycle.rs');
+  const frontendLifecycle = await readUtf8('src/lib/native-lifecycle.mjs');
+  const mainWindow = tauriConfig.app.windows.find(window => window.label === 'main');
+  const e2eMainWindow = e2eConfig.app.windows.find(window => window.label === 'main');
   assert.match(cargoToml, /tauri\s*=\s*\{[^\n]*"tray-icon"/);
+  assert.equal(mainWindow?.create, false, 'main WebviewWindow must be deferred');
+  assert.equal(e2eMainWindow?.create, false, 'E2E main WebviewWindow must be deferred');
   assert.ok(mainSource.includes('background::setup_tray(app)?;'));
+  assert.ok(mainSource.includes('LifecycleState::from_store(&data)'));
+  assert.ok(mainSource.includes('lifecycle::create_main_window(app.handle())?;'));
   assert.ok(mainSource.includes('api.prevent_close();'));
-  assert.ok(mainSource.includes('background::hide_main_window(window)'));
+  assert.ok(mainSource.includes('lifecycle::request_close_main_window(window.app_handle())'));
+  assert.ok(mainSource.includes('tauri::RunEvent::ExitRequested'));
+  assert.ok(mainSource.includes('api.prevent_exit();'));
+  assert.ok(!mainSource.includes('hide_main_window'));
+  assert.ok(lifecycleSource.includes('WebviewWindowBuilder::from_config(app, config)?.build()?'));
+  assert.ok(lifecycleSource.includes('app.save_window_state(StateFlags::all())'));
+  assert.ok(lifecycleSource.includes('window.destroy()?;'));
+  assert.ok(lifecycleSource.includes('PREPARE_CLOSE_EVENT'));
+  assert.ok(lifecycleSource.includes('pub async fn bootstrap_state'));
+  assert.ok(lifecycleSource.includes('pub async fn save_ui_snapshot'));
+  assert.ok(lifecycleSource.includes('pub async fn window_close_ready'));
+  assert.ok(lifecycleSource.includes('CLOSE_DESTROY_FAILED_EVENT'));
+  assert.ok(lifecycleSource.includes('persist_mode(&kv, previous).await'));
+  assert.ok(frontendLifecycle.includes('CLOSE_DESTROY_FAILED_EVENT'));
   assert.ok(backgroundSource.includes('TrayIconBuilder::with_id(TRAY_ICON_ID)'));
   assert.ok(backgroundSource.includes('.show_menu_on_left_click(false)'));
-  assert.ok(backgroundSource.includes('handle.exit(0);'));
+  assert.ok(backgroundSource.includes('LIGHTWEIGHT_MENU_ID'));
+  assert.ok(backgroundSource.includes('"进入轻量模式"'));
+  assert.ok(backgroundSource.includes('lifecycle::show_or_create_main_window(&handle)'));
+  assert.ok(backgroundSource.includes('restore_main_window(tray.app_handle())'));
+  assert.ok(backgroundSource.includes('lifecycle::set_mode_from_handle(&handle, true)'));
+  assert.ok(!backgroundSource.includes('CheckMenuItem'));
+  assert.ok(!backgroundSource.includes('SETTINGS_MENU_ID'));
+  assert.ok(!backgroundSource.includes('STATUS_MENU_ID'));
+  assert.ok(!backgroundSource.includes('set_checked'));
+  assert.ok(backgroundSource.includes('handle.exit(0)'));
+  assert.ok(frontendLifecycle.includes("invoke('bootstrap_state')"));
+  assert.ok(frontendLifecycle.includes("invoke('save_ui_snapshot'"));
+  assert.ok(frontendLifecycle.includes("invoke('window_close_ready')"));
 }
 
 async function testScheduleStructure() {
@@ -207,11 +250,12 @@ async function testEncodingAndSourceSize(files) {
 
 const files = await walkFiles(REPO_ROOT);
 await testRequiredProjectFiles();
+await testCiRunsRustTests();
 await testVersionAndLicenseMetadata();
 await testAboutDialogMetadata();
 await testAppEntrypointStructure();
 await testTreeConsoleContextIsolation();
-await testDesktopBackgroundMode();
+await testDesktopLightweightMode();
 await testScheduleStructure();
 await testMcpStructure();
 await testConsoleLauncherStructure();
