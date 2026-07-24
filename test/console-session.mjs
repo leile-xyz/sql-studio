@@ -36,6 +36,46 @@ async function testLegacyDraftMigration() {
   assert.equal(saved.length, 1);
 }
 
+async function testBootstrapSessionHydration() {
+  const calls = [];
+  const manager = new ConsoleSessionManager({
+    store: {
+      getConsoleSession: async () => { calls.push('session'); return null; },
+      getConsoleDraft: async () => { calls.push('draft'); return null; },
+      saveConsoleSession: async () => { calls.push('save'); },
+    },
+    onError: error => { throw error; },
+  });
+  const session = await manager.load('env-a', {
+    sqls_console_sessions: {
+      'env-a': { consoles: [consoleState('console-0', 'SELECT bootstrap;')], activeConsoleKey: 'console-0', nextSequence: 1 },
+    },
+    sqls_console_drafts: {},
+  });
+  assert.equal(session.consoles[0].sql, 'SELECT bootstrap;');
+  assert.deepEqual(calls, []);
+}
+
+async function testBootstrapDraftMigration() {
+  const saved = [];
+  const calls = [];
+  const manager = new ConsoleSessionManager({
+    store: {
+      getConsoleSession: async () => { calls.push('session'); return null; },
+      getConsoleDraft: async () => { calls.push('draft'); return null; },
+      saveConsoleSession: async (envId, session) => saved.push({ envId, session }),
+    },
+    onError: error => { throw error; },
+  });
+  const session = await manager.load('env-a', {
+    sqls_console_sessions: {},
+    sqls_console_drafts: { 'env-a': { sql: 'SELECT bootstrap draft;', instance: 'mock', db: 'demo' } },
+  });
+  assert.equal(session.consoles[0].sql, 'SELECT bootstrap draft;');
+  assert.equal(saved.length, 1);
+  assert.deepEqual(calls, []);
+}
+
 async function testSessionScheduling() {
   const saved = [];
   const manager = new ConsoleSessionManager({
@@ -205,6 +245,8 @@ function testConsoleMenuViews() {
 }
 
 await testLegacyDraftMigration();
+await testBootstrapSessionHydration();
+await testBootstrapDraftMigration();
 await testSessionScheduling();
 testConsoleWorkspace();
 testConsoleMenuViews();

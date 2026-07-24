@@ -88,17 +88,28 @@ async function environmentChanged(context) {
 async function openManager(context) {
   context.get('workflowPage').hidden = false;
   const request = context.state.requests.begin({ channel: REQUEST_CHANNEL.list });
+  const resourcesResult = context.workflows.pluginResources()
+    .then(resources => ({ ok: true, resources }))
+    .catch(error => ({ ok: false, error }));
   try {
-    await commitLatestWorkflowRequest({
+    const committed = await commitLatestWorkflowRequest({
       gate: context.state.requests,
       request,
-      load: () => Promise.all([context.workflows.list(request.environmentId), context.workflows.pluginResources()]),
-      commit: ([items, resources]) => {
+      load: () => context.workflows.list(request.environmentId),
+      commit: items => {
         context.state.items = items || [];
-        context.state.resources = (resources || []).filter(resource => resource.enabled !== false);
         renderList(context);
       },
     });
+    if (!committed) return;
+    const pluginResources = await resourcesResult;
+    if (!context.state.requests.isCurrent(request)) return;
+    if (!pluginResources.ok) {
+      reportRequestError(context, request, '读取插件资源失败', pluginResources.error);
+      return;
+    }
+    context.state.resources = (pluginResources.resources || []).filter(resource => resource.enabled !== false);
+    if (context.state.draft) renderNodes(context);
   } catch (error) { reportRequestError(context, request, '读取流水线失败', error); }
 }
 
@@ -216,12 +227,13 @@ async function resetSource(context, level) {
 
 async function loadSourceOptions(context) {
   const source = context.state.draft.dataSource;
-  const { activeEnvId, origin } = context.getAppState();
+  const appState = context.getAppState();
+  const { activeEnvId, origin } = appState;
   const request = context.state.requests.begin({ channel: REQUEST_CHANNEL.source, subjectId: context.state.draft.id });
   if (source.environmentId !== activeEnvId) throw new Error('请先在主界面切换并登录所选环境');
   context.get('workflowSourceError').textContent = '';
   try {
-    const instances = await context.api.instances(origin);
+    const instances = getAvailableInstances(appState) || await context.api.instances(origin);
     if (!context.state.requests.isCurrent(request)) return false;
     fillInstances(context, instances, source.instanceId);
     if (!source.instanceId) { clearDatabaseOptions(context); return true; }
@@ -240,6 +252,11 @@ async function loadSourceOptions(context) {
     console.error('[SQL Studio] 读取流水线数据源失败（请求已过期）', error);
     return false;
   }
+}
+
+function getAvailableInstances(appState) {
+  if (!appState.instancesLoaded || !Array.isArray(appState.instances)) return null;
+  return appState.instances;
 }
 
 function clearDatabaseOptions(context) {

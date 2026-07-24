@@ -26,7 +26,7 @@ const attr = s => String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').repla
 const state = {
   envs: [], activeEnvId: null, env: null, origin: '',
   connected: false, connecting: false, user: '',
-  instances: [], tree: [],
+  instances: [], instancesLoaded: false, tree: [],
   sidebarCollapsed: false,
   tabs: [], activeTabId: null, activeConsoleKey: null, tabSeq: 0, consoleSeq: 0,
   uidSeq: 0, nodeMap: new Map(),
@@ -71,7 +71,7 @@ const autocomplete = new SqlAutocomplete({
   }
   renderTabs();
   renderBody();
-  await applyEnv(state.activeEnvId);
+  await applyEnv(state.activeEnvId, { persistent: initial.bootstrap.persistent, persistSelection: false });
   Object.assign(state, restoreUiSnapshot({ snapshot: initial.uiSnapshot, tabs: state.tabs, tabSeq: state.tabSeq, activeTabId: state.activeTabId, activeConsoleKey: state.activeConsoleKey, activeEnvId: state.activeEnvId })); $('main').classList.toggle('sidebar-collapsed', state.sidebarCollapsed); renderTabs(); renderBody(); renderTree();
   if (!state.env) { openEnvMgr(); return; }
   await ensureConnected();
@@ -97,7 +97,7 @@ function bindStatic() {
   $('envMgrSave').addEventListener('click', saveEnvMgr);
   bindAboutDialog({ api, toast });
   bindMcpDialog({ invoke: (command, args) => window.__TAURI__.core.invoke(command, args), toast });
-  bindPluginManager({ api, toast }); workflowManager = bindWorkflowManager({ api, toast, getAppState: () => ({ envs: state.envs, activeEnvId: state.activeEnvId, origin: state.origin, username: state.user }) });
+  bindPluginManager({ api, toast }); workflowManager = bindWorkflowManager({ api, toast, getAppState: () => ({ envs: state.envs, activeEnvId: state.activeEnvId, origin: state.origin, username: state.user, instances: state.instances, instancesLoaded: state.instancesLoaded }) });
   document.addEventListener('click', event => { if (!event.target.closest('#consoleMenu, #consoleAllMenu, #treeContextMenu, [data-act="toggle-console-menu"]')) hideMenus(); });
   window.addEventListener('pagehide', () => consoleSessionManager.flush().catch(reportConsoleSessionError));
   document.addEventListener('visibilitychange', () => {
@@ -108,14 +108,13 @@ function bindStatic() {
     m.addEventListener('click', e => { if (e.target === m) closeModal(m.id); }));
 }
 /* ================= 环境 ================= */
-async function applyEnv(id) {
+async function applyEnv(id, options = {}) {
   await consoleSessionManager.flush();
   const env = state.envs.find(e => e.id === id) || state.envs[0];
   state.env = env;
   state.activeEnvId = env ? env.id : null;
   state.origin = env ? store.envOrigin(env) : '';
-  state.connected = false;
-  state.instances = [];
+  state.connected = false; state.instances = []; state.instancesLoaded = false;
   state.tree = [];
   state.tabs = [];
   state.activeTabId = null;
@@ -123,8 +122,8 @@ async function applyEnv(id) {
   state.treeSel = null;
   state.lastCtx = null;
   if (env) {
-    await store.setActiveEnvId(env.id);
-    const restored = restoreConsoleWorkspace(await consoleSessionManager.load(env.id), state.tabSeq);
+    if (options.persistSelection !== false) await store.setActiveEnvId(env.id);
+    const restored = restoreConsoleWorkspace(await consoleSessionManager.load(env.id, options.persistent), state.tabSeq);
     state.tabs = restored.tabs;
     state.activeTabId = restored.activeTabId;
     state.tabSeq = restored.tabSeq;
@@ -178,7 +177,6 @@ async function switchEnv(id) {
   await applyEnv(id);
   await ensureConnected();
 }
-/** 确保当前环境已连接：先探测已有会话，再尝试记住的密码，否则弹登录 */
 async function ensureConnected() {
   if (!state.env) return;
   const env = state.env; const origin = state.origin;
@@ -187,10 +185,10 @@ async function ensureConnected() {
   if (cred.user) api.setSession(env.id, cred.user, origin);
   // 1. 已有会话
   try {
-    await api.checkSession(origin);
+    const instances = await api.instances(origin);
     if (!isCurrentEnv(env, origin)) return;
     state.user = cred.user || '';
-    await onConnected();
+    await onConnected(instances);
     return;
   } catch (e) { if (!isCurrentEnv(env, origin)) return; }
   // 2. 记住的密码自动登录
@@ -198,8 +196,10 @@ async function ensureConnected() {
     try {
       await api.login(env.id, origin, cred.user, cred.password);
       if (!isCurrentEnv(env, origin)) return;
+      const instances = await api.instances(origin);
+      if (!isCurrentEnv(env, origin)) return;
       state.user = cred.user;
-      await onConnected();
+      await onConnected(instances);
       toast('已使用保存的凭据自动登录 ' + env.name, 'ok');
       return;
     } catch (e) { if (!isCurrentEnv(env, origin)) return; }
@@ -209,14 +209,13 @@ async function ensureConnected() {
   renderEnvUI(); renderTree();
   openLogin();
 }
-async function onConnected() {
+async function onConnected(preloadedInstances) {
   state.connected = true;
   state.connecting = false;
   renderEnvUI();
   renderBody();
-  await loadInstances(); const tab = curTab(); if (tab?.type === 'table') ensureTableLoaded(tab);
+  await loadInstances(preloadedInstances); const tab = curTab(); if (tab?.type === 'table') ensureTableLoaded(tab);
 }
-/* ================= 登录 ================= */
 function openLogin(envId) {
   const target = envId || state.activeEnvId;
   const sel = $('loginEnv');
@@ -365,19 +364,20 @@ function makeNode(kind, name, extra) {
   state.nodeMap.set(uid, node);
   return node;
 }
-async function loadInstances() {
+async function loadInstances(preloadedInstances) {
   const envId = state.activeEnvId; const origin = state.origin;
   try {
-    const list = await api.instances(origin);
+    const list = Array.isArray(preloadedInstances) ? preloadedInstances : await api.instances(origin);
     if (envId !== state.activeEnvId || origin !== state.origin) return;
     state.instances = list;
+    state.instancesLoaded = true;
     state.tree = list.map(inst => makeNode('instance', inst.instance_name, { dbType: inst.db_type, instType: inst.type, dbs: null }));
     renderTree();
     const tab = curTab();
     if (tab && tab.type === 'console' && tab.instance) await loadConsoleDbs(tab);
   } catch (e) {
     if (envId !== state.activeEnvId || origin !== state.origin) return;
-    state.connected = false;
+    state.connected = false; state.instancesLoaded = false;
     renderEnvUI();
     renderTree(e.message);
   }

@@ -1,0 +1,29 @@
+{
+  "credentials": {
+    "username": "tester",
+    "password": "pass123"
+  },
+  "environments": [
+    {
+      "id": "mock-a",
+      "name": "Mock环境 A",
+      "color": "#5fad65",
+      "base": "127.0.0.1:9123",
+      "scheme": "http"
+    },
+    {
+      "id": "mock-b",
+      "name": "Mock环境 B",
+      "color": "#dcae4c",
+      "base": "127.0.0.1:9124",
+      "scheme": "http"
+    },
+    {
+      "id": "mock-c",
+      "name": "Mock环境 C",
+      "color": "#6c9fce",
+      "base": "127.0.0.1:9125",
+      "scheme": "http"
+    }
+  ]
+}

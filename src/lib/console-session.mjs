@@ -77,6 +77,22 @@ function freezeSession(value) {
   });
 }
 
+function readPersistentMap(persistent, key, label) {
+  if (persistent == null) return Object.freeze({ known: false, value: null });
+  assertRecord(persistent, 'bootstrap 持久化状态');
+  if (!Object.hasOwn(persistent, key)) return Object.freeze({ known: false, value: null });
+  const value = persistent[key];
+  if (value == null) return Object.freeze({ known: true, value: null });
+  assertRecord(value, label);
+  return Object.freeze({ known: true, value });
+}
+
+function readPersistentEntry(persistent, key, envId, label) {
+  const map = readPersistentMap(persistent, key, label);
+  if (!map.known || map.value == null) return map;
+  return Object.freeze({ known: true, value: Object.hasOwn(map.value, envId) ? map.value[envId] : null });
+}
+
 function migratedSession(draft) {
   assertRecord(draft, '旧控制台草稿');
   return freezeSession({
@@ -118,11 +134,13 @@ export class ConsoleSessionManager {
     this.activeWrites = new Set();
   }
 
-  async load(envId) {
+  async load(envId, persistent = null) {
     requiredString(envId, '环境标识');
-    const stored = await this.store.getConsoleSession(envId);
+    const sessionState = readPersistentEntry(persistent, 'sqls_console_sessions', envId, 'bootstrap 控制台会话');
+    const stored = sessionState.known ? sessionState.value : await this.store.getConsoleSession(envId);
     if (stored != null) return freezeSession(stored);
-    const draft = await this.store.getConsoleDraft(envId);
+    const draftState = readPersistentEntry(persistent, 'sqls_console_drafts', envId, 'bootstrap 控制台草稿');
+    const draft = draftState.known ? draftState.value : await this.store.getConsoleDraft(envId);
     if (draft == null) return null;
     const session = migratedSession(draft);
     await this.enqueueSave(envId, session);

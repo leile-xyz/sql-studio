@@ -10,6 +10,9 @@ const path = require('path');
 
 const EXE = process.argv[2];
 const CDP_PORT = 9333;
+const MOCK_PROFILE = JSON.parse(fs.readFileSync(path.join(__dirname, 'mock-environments.json'), 'utf8'));
+const MOCK_ENVIRONMENTS = Object.freeze(MOCK_PROFILE.environments);
+const ACTIVE_ENV_ID = MOCK_ENVIRONMENTS[0].id;
 // CDP 走本地回环，必须绕过系统代理（否则 connectOverCDP 被代理劫持返回 502）
 process.env.NO_PROXY = [process.env.NO_PROXY, '127.0.0.1,localhost'].filter(Boolean).join(',');
 process.env.no_proxy = process.env.NO_PROXY;
@@ -107,11 +110,11 @@ async function main() {
   ], { stdio: 'ignore' });
   await sleep(1500);
 
-  // 预置环境配置：仅一个指向本地 mock 的环境，避免默认环境探测内网超时
+  // 预置多环境 mock 配置，供切环境与性能测试复用。
   fs.mkdirSync(APPDATA_DIR, { recursive: true });
   fs.writeFileSync(STORE_PATH, JSON.stringify({
-    sqls_envs: [{ id: 'mock', name: 'Mock环境', color: '#5fad65', base: '127.0.0.1:9123', scheme: 'http' }],
-    sqls_active_env: 'mock'
+    sqls_envs: MOCK_ENVIRONMENTS,
+    sqls_active_env: ACTIVE_ENV_ID
   }));
 
   const child = spawn(EXE, [], {
@@ -305,12 +308,12 @@ async function main() {
     // 历史按拆分粒度逐条落盘：最新在前（unshift）
     await sleep(500);
     const store = JSON.parse(fs.readFileSync(STORE_PATH, 'utf8'));
-    check('查询历史写入 KV', !!(store.sqls_history && store.sqls_history.mock && store.sqls_history.mock.length));
-    // MIXED 三条 → mock[0..2]，选中执行一条 → mock[3]，无选区拆分两条 → mock[4..5]
-    const hist = store.sqls_history.mock;
+    check('查询历史写入 KV', !!(store.sqls_history && store.sqls_history[ACTIVE_ENV_ID] && store.sqls_history[ACTIVE_ENV_ID].length));
+    // MIXED 三条 → activeEnv[0..2]，选中执行一条 → activeEnv[3]，无选区拆分两条 → activeEnv[4..5]
+    const hist = store.sqls_history[ACTIVE_ENV_ID];
     check('历史按拆分粒度逐条记录', hist[0].sql === 'SELECT * FROM t_user' && hist[1].sql === 'SELECT FAIL' && hist[2].sql === 'SELECT 1', JSON.stringify(hist.slice(0, 3).map(h => h.sql)));
     check('历史含失败条目标记', hist[1].ok === false && hist[0].ok === true, '');
-    const consoles = store.sqls_console_sessions.mock.consoles;
+    const consoles = store.sqls_console_sessions[ACTIVE_ENV_ID].consoles;
     check('全部打开控制台写入 KV', consoles.length === 2 && consoles.some(item => item.sql === MULTI_SQL)
       && consoles.some(item => item.sql === MIXED_SQL), JSON.stringify(consoles.map(item => item.title)));
     await page.reload();
@@ -318,8 +321,8 @@ async function main() {
     check('重载后恢复全部控制台标签', await page.locator('#tabbar .tab').count() === 2);
     await openConsoleFromAll(page, 0);
     check('重载后恢复控制台 SQL', await page.inputValue('#edTa') === MULTI_SQL);
-    check('凭据标志写入 KV（密码不落盘）', store.sqls_creds && store.sqls_creds.mock
-      && store.sqls_creds.mock.remember === true && !JSON.stringify(store.sqls_creds).includes('pass123'));
+    check('凭据标志写入 KV（密码不落盘）', store.sqls_creds && store.sqls_creds[ACTIVE_ENV_ID]
+      && store.sqls_creds[ACTIVE_ENV_ID].remember === true && !JSON.stringify(store.sqls_creds).includes('pass123'));
 
     await testPostgresFlow(page);
   } finally {

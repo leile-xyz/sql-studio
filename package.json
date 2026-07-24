@@ -25,6 +25,7 @@
   "scripts": {
     "dev": "tauri dev",
     "build": "tauri build --no-bundle",
+    "test:mock-cluster": "node test/mock-archery-cluster.js",
     "test": "npm run test:unit && npm run test:project",
     "test:unit": "node test/theme.mjs && node test/unit.mjs && node test/resource-tree.mjs && node test/table-empty-state.mjs && node test/workflow-schedule.mjs && node test/workflow-autocomplete.mjs && node test/store.mjs && node test/workflow-manager-race.mjs && node test/native-lifecycle.mjs",
     "test:project": "node test/project.mjs"
