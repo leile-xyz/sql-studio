@@ -296,6 +296,13 @@ const MIGRATIONS: &[Migration] = &[Migration {
            WHEN NEW.trigger_type='schedule'
              AND NOT EXISTS (SELECT 1 FROM workflow_schedules WHERE id=NEW.schedule_id)
            BEGIN SELECT RAISE(ABORT, 'scheduled execution requires schedule'); END;",
+}, Migration {
+    version: 8,
+    sql: "DELETE FROM workflow_schedules
+          WHERE EXISTS (
+            SELECT 1 FROM workflow_definitions w
+            WHERE w.id=workflow_schedules.workflow_id AND w.deleted_at IS NOT NULL
+          );",
 }];
 
 pub fn migrate(connection: &mut Connection) -> Result<(), String> {
@@ -369,6 +376,60 @@ fn validate_migration_order(migrations: &[Migration]) -> Result<(), String> {
 mod tests {
     use super::*;
 
+    const MIGRATION_TIME: &str = "2026-07-17T04:11:23Z";
+
+    struct WorkflowSeed<'a> {
+        id: &'a str,
+        version_id: &'a str,
+        enabled: bool,
+        deleted_at: Option<&'a str>,
+    }
+
+    fn seed_versioned_workflow(connection: &Connection, seed: WorkflowSeed<'_>) {
+        connection
+            .execute(
+                "INSERT INTO workflow_definitions(id,name,description,environment_id,instance_id,
+                 instance_name,database_name,database_type,draft_revision,enabled,created_at,
+                 updated_at,deleted_at) VALUES(?1,?1,'','env','instance','instance','database',
+                 'mysql',1,?2,?3,?3,?4)",
+                params![
+                    seed.id,
+                    seed.enabled as i64,
+                    MIGRATION_TIME,
+                    seed.deleted_at
+                ],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO workflow_versions(id,workflow_id,version_number,
+                 source_draft_revision,name,description,environment_id,instance_id,instance_name,
+                 database_name,database_type,published_at) VALUES(?1,?2,1,1,?2,'','env',
+                 'instance','instance','database','mysql',?3)",
+                params![seed.version_id, seed.id, MIGRATION_TIME],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "UPDATE workflow_definitions SET active_version_id=?1 WHERE id=?2",
+                params![seed.version_id, seed.id],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO workflow_schedules(id,workflow_id,workflow_version_id,
+                 cron_expression,timezone,enabled,next_run_at,created_at,updated_at)
+                 VALUES(?1,?2,?3,'0 9 * * *','UTC',1,?4,?4,?4)",
+                params![
+                    format!("schedule-{}", seed.id),
+                    seed.id,
+                    seed.version_id,
+                    MIGRATION_TIME
+                ],
+            )
+            .unwrap();
+    }
+
     #[test]
     fn rolls_back_failed_migration_batch() {
         let mut connection = Connection::open_in_memory().unwrap();
@@ -400,5 +461,52 @@ mod tests {
             sql: "SELECT 1;",
         }];
         assert!(validate_migration_order(&migrations).is_err());
+    }
+
+    #[test]
+    fn migration_8_removes_only_deleted_workflow_schedules() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        connection.execute_batch("PRAGMA foreign_keys=ON;").unwrap();
+        migrate_with(&mut connection, &MIGRATIONS[..7]).unwrap();
+        seed_versioned_workflow(
+            &connection,
+            WorkflowSeed {
+                id: "active",
+                version_id: "active-version",
+                enabled: true,
+                deleted_at: None,
+            },
+        );
+        seed_versioned_workflow(
+            &connection,
+            WorkflowSeed {
+                id: "paused",
+                version_id: "paused-version",
+                enabled: false,
+                deleted_at: None,
+            },
+        );
+        seed_versioned_workflow(
+            &connection,
+            WorkflowSeed {
+                id: "deleted",
+                version_id: "deleted-version",
+                enabled: false,
+                deleted_at: Some(MIGRATION_TIME),
+            },
+        );
+
+        migrate(&mut connection).unwrap();
+
+        let mut statement = connection
+            .prepare("SELECT workflow_id FROM workflow_schedules ORDER BY workflow_id")
+            .unwrap();
+        let workflow_ids = statement
+            .query_map([], |row| row.get::<_, String>(0))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(workflow_ids, vec!["active", "paused"]);
+        assert_eq!(current_version(&connection).unwrap(), 8);
     }
 }

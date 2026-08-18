@@ -12,6 +12,7 @@ import { renderConsoleResultView } from './lib/console-result-view.mjs';
 import { createCsvExportActions } from './lib/csv-export-actions.mjs';
 import { saveCsvText } from './lib/csv-save.mjs';
 import { renderResourceTree } from './lib/resource-tree-view.mjs';
+import { createResourceTreeLoader } from './lib/resource-tree-loader.mjs';
 import { createResourceTreeSearch } from './lib/resource-tree-search.mjs';
 import { resolveTreeConsoleChange, showTreeContextMenu } from './lib/resource-tree-menu.mjs';
 import { renderTableView, resolveTableSubview } from './lib/table-view.mjs';
@@ -113,6 +114,7 @@ async function applyEnv(id) {
   state.connected = false;
   state.instances = [];
   state.tree = [];
+  state.nodeMap.clear();
   state.tabs = [];
   state.activeTabId = null;
   state.activeConsoleKey = null;
@@ -355,6 +357,7 @@ async function delEnvRow(envId) {
   renderEnvMgrRows(rows, flags);
 }
 /* ================= 树 ================= */
+const SILENT_TREE_LOAD = Object.freeze({ render: false });
 function makeNode(kind, name, extra) {
   const uid = 'n' + (state.uidSeq++);
   const node = { uid, kind, name, expanded: false, loading: false, error: '', ...extra };
@@ -363,12 +366,13 @@ function makeNode(kind, name, extra) {
 }
 async function loadInstances() {
   const envId = state.activeEnvId; const origin = state.origin;
+  state.nodeMap.clear();
   try {
     const list = await api.instances(origin);
     if (envId !== state.activeEnvId || origin !== state.origin) return;
     state.instances = list;
     state.tree = list.map(inst => makeNode('instance', inst.instance_name, { dbType: inst.db_type, instType: inst.type, dbs: null }));
-    renderTree();
+    treeSearch.search();
     const tab = curTab();
     if (tab && tab.type === 'console' && tab.instance) await loadConsoleDbs(tab);
   } catch (e) {
@@ -405,49 +409,6 @@ async function toggleNode(uid) {
   }
   renderTree();
 }
-async function loadDbs(node) {
-  node.loading = true; node.error = ''; renderTree();
-  try {
-    const dbs = await api.databases(state.origin, node.name);
-    node.dbs = dbs.map(d => makeNode('db', d, {
-      inst: node.name,
-      dbType: node.dbType,
-      schemas: isPostgresType(node.dbType) ? null : [],
-      tables: isPostgresType(node.dbType) ? [] : null,
-    }));
-  } catch (e) { node.error = e.message; node.dbs = null; node.expanded = true; }
-  node.loading = false; renderTree();
-}
-async function loadSchemas(node) {
-  node.loading = true; node.error = ''; renderTree();
-  try {
-    const schemas = await api.schemas(state.origin, { instance: node.inst, db: node.name });
-    node.schemas = schemas.map(schema => makeNode('schema', schema, {
-      inst: node.inst,
-      db: node.name,
-      dbType: node.dbType,
-      tables: null,
-    }));
-  } catch (e) { node.error = e.message; node.schemas = null; node.expanded = true; }
-  node.loading = false; renderTree();
-}
-async function loadTables(node) {
-  node.loading = true; node.error = ''; renderTree();
-  try {
-    const db = node.kind === 'schema' ? node.db : node.name;
-    const schema = node.kind === 'schema' ? node.name : '';
-    const tbs = await api.tables(state.origin, { instance: node.inst, db, schema });
-    node.tables = tbs.map(table => makeNode('table', table, {
-      inst: node.inst,
-      db,
-      schema,
-      dbType: node.dbType,
-      meta: null,
-      open: { cols: false, keys: false, idx: false },
-    }));
-  } catch (e) { node.error = e.message; node.tables = null; node.expanded = true; }
-  node.loading = false; renderTree();
-}
 async function loadTableMeta(node) {
   node.loading = true; node.error = ''; renderTree();
   try {
@@ -476,9 +437,21 @@ function renderTree(errMsg) {
     selection: state.treeSel,
   });
 }
+const treeLoader = createResourceTreeLoader({
+  api,
+  getOrigin: () => state.origin,
+  makeNode,
+  isPostgres: isPostgresType,
+  isCurrentNode: node => state.nodeMap.get(node.uid) === node,
+  render: renderTree,
+});
+const { loadDbs, loadSchemas, loadTables } = treeLoader;
 const treeSearch = createResourceTreeSearch({
   getFilter: () => $('treeSearch').value.trim(), getTree: () => state.tree, getOrigin: () => state.origin,
-  isPostgres: isPostgresType, loadDbs, loadSchemas, loadTables, render: renderTree,
+  isPostgres: isPostgresType,
+  loadDbs: (node, isScopeCurrent) => loadDbs(node, { ...SILENT_TREE_LOAD, isCurrent: isScopeCurrent }),
+  loadSchemas: (node, isScopeCurrent) => loadSchemas(node, { ...SILENT_TREE_LOAD, isCurrent: isScopeCurrent }),
+  loadTables: (node, isScopeCurrent) => loadTables(node, { ...SILENT_TREE_LOAD, isCurrent: isScopeCurrent }), render: renderTree,
 });
 function toggleFolder(uid, fold) {
   const tb = state.nodeMap.get(uid);
@@ -771,15 +744,15 @@ function renderConsole(tab, body) {
   </div>`;
   const ta = $('edTa');
   ta.value = tab.sql;
-  syncEditor(ta);
+  syncEditor(ta, { persist: false });
   ta.addEventListener('scroll', () => { const hl = $('edHl'); hl.scrollTop = ta.scrollTop; hl.scrollLeft = ta.scrollLeft; autocomplete.hide(); });
   ta.addEventListener('blur', () => setTimeout(() => autocomplete.hide(), 100));
   ta.addEventListener('click', () => autocomplete.hide());
   renderConsoleResult(tab);
 }
-function syncEditor(ta) {
+function syncEditor(ta, options = {}) {
   const tab = curTab(); if (tab) tab.sql = ta.value;
-  if (tab && tab.type === 'console') scheduleConsoleSession(tab);
+  if (options.persist !== false && tab?.type === 'console') scheduleConsoleSession(tab);
   $('edHl').innerHTML = highlightSql(ta.value) + '\n';
   const lines = ta.value.split('\n').length;
   $('edGutter').innerHTML = Array.from({ length: lines }, (_, i) => `<div>${i + 1}</div>`).join('');

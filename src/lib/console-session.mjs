@@ -3,6 +3,7 @@ const DEFAULT_EDITOR_HEIGHT = 172;
 const MIGRATED_CONSOLE_KEY = 'console-0';
 const MIGRATED_CONSOLE_TITLE = 'console';
 const MIGRATED_NEXT_SEQUENCE = 1;
+const UNLOADED_BASELINE = Symbol('unloaded console baseline');
 
 function assertRecord(value, label) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -77,6 +78,10 @@ function freezeSession(value) {
   });
 }
 
+function sessionFingerprint(session) {
+  return JSON.stringify(session);
+}
+
 function migratedSession(draft) {
   assertRecord(draft, '旧控制台草稿');
   return freezeSession({
@@ -113,57 +118,258 @@ export class ConsoleSessionManager {
     this.saveDelayMs = validateOptions(options);
     this.store = options.store;
     this.onError = options.onError;
-    this.pending = new Map();
+    this.states = new Map();
     this.writeTail = Promise.resolve();
     this.activeWrites = new Set();
+    this.activeEntries = new Map();
+    this.flushPromise = null;
+    this.changeVersion = 0;
+    this.loads = new Map();
   }
 
   async load(envId) {
     requiredString(envId, '环境标识');
+    const existing = this.loads.get(envId);
+    if (existing) return existing;
+    const loading = this.loadInternal(envId);
+    this.loads.set(envId, loading);
+    try {
+      return await loading;
+    } finally {
+      if (this.loads.get(envId) === loading) this.loads.delete(envId);
+    }
+  }
+
+  async loadInternal(envId) {
+    const state = this.stateFor(envId);
+    const initialRevision = state.revision;
+    await this.flush();
+    if (state.revision !== initialRevision) return this.finishConcurrentLoad(state, null);
+    const readRevision = initialRevision;
     const stored = await this.store.getConsoleSession(envId);
-    if (stored != null) return freezeSession(stored);
+    if (stored != null) {
+      const session = freezeSession(stored);
+      if (state.revision !== readRevision) return this.finishConcurrentLoad(state, session);
+      this.adoptBaseline(state, session);
+      return session;
+    }
     const draft = await this.store.getConsoleDraft(envId);
-    if (draft == null) return null;
+    if (state.revision !== readRevision) return this.finishConcurrentLoad(state, null);
+    if (draft == null) {
+      this.adoptBaseline(state, null);
+      return null;
+    }
     const session = migratedSession(draft);
-    await this.enqueueSave(envId, session);
+    const entry = this.createDesired(state, { envId, snapshot: session });
+    await this.enqueueEntry(entry);
+    if (state.revision !== entry.revision) return this.finishConcurrentLoad(state, session);
     return session;
   }
 
   schedule(envId, sessionState) {
     requiredString(envId, '环境标识');
+    const state = this.stateFor(envId);
     const snapshot = freezeSession(sessionState);
-    const previous = this.pending.get(envId);
-    if (previous) clearTimeout(previous.timer);
-    const entry = { snapshot, timer: null };
-    entry.timer = setTimeout(() => this.savePending(envId, entry), this.saveDelayMs);
-    this.pending.set(envId, entry);
+    const fingerprint = sessionFingerprint(snapshot);
+    if (this.sameActiveOrPending(state, fingerprint)) return snapshot;
+    if (this.canSkip(state, fingerprint)) {
+      state.desired = null;
+      state.dirty = false;
+      this.cancelPending(state);
+      return snapshot;
+    }
+    const entry = this.createDesired(state, { envId, snapshot, fingerprint });
+    state.dirty = true;
+    if (this.hasActiveFingerprint(state, fingerprint)) this.cancelPending(state);
+    else this.armPending(state, entry);
     return snapshot;
   }
 
-  async flush() {
-    const entries = [...this.pending.entries()];
-    this.pending.clear();
-    const writes = entries.map(([envId, entry]) => {
-      clearTimeout(entry.timer);
-      return this.enqueueSave(envId, entry.snapshot);
-    });
-    await Promise.all([...this.activeWrites, ...writes]);
+  flush() {
+    if (this.flushPromise) return this.flushPromise;
+    const worker = this.flushRequests();
+    this.flushPromise = worker;
+    return worker;
   }
 
-  savePending(envId, entry) {
-    if (this.pending.get(envId) !== entry) return;
-    this.pending.delete(envId);
-    this.enqueueSave(envId, entry.snapshot).catch(this.onError);
+  stateFor(envId) {
+    let state = this.states.get(envId);
+    if (!state) {
+      state = {
+        baseline: UNLOADED_BASELINE,
+        baselineSnapshot: null,
+        desired: null,
+        revision: 0,
+        pending: null,
+        active: new Set(),
+        dirty: false,
+        lastError: null,
+      };
+      this.states.set(envId, state);
+    }
+    return state;
   }
 
-  enqueueSave(envId, snapshot) {
-    const write = this.writeTail.then(() => this.store.saveConsoleSession(envId, snapshot));
+  createDesired(state, { envId, snapshot, fingerprint = sessionFingerprint(snapshot) }) {
+    const entry = Object.freeze({ envId, snapshot, fingerprint, revision: state.revision + 1 });
+    state.revision = entry.revision;
+    state.desired = entry;
+    state.dirty = true;
+    this.changeVersion += 1;
+    return entry;
+  }
+
+  sameActiveOrPending(state, fingerprint) {
+    return state.desired?.fingerprint === fingerprint
+      && (state.pending?.entry.fingerprint === fingerprint || this.hasActiveFingerprint(state, fingerprint));
+  }
+
+  hasActiveFingerprint(state, fingerprint) {
+    return [...state.active].some(entry => entry.fingerprint === fingerprint);
+  }
+
+  canSkip(state, fingerprint) {
+    if (state.baseline === UNLOADED_BASELINE || state.baseline !== fingerprint) return false;
+    return ![...state.active].some(entry => entry.fingerprint !== fingerprint);
+  }
+
+  cancelPending(state) {
+    if (!state.pending) return;
+    clearTimeout(state.pending.timer);
+    state.pending = null;
+  }
+
+  armPending(state, entry) {
+    this.cancelPending(state);
+    const pending = { entry, timer: null };
+    pending.timer = setTimeout(() => this.savePending(entry.envId, pending), this.saveDelayMs);
+    state.pending = pending;
+  }
+
+  savePending(envId, pending) {
+    const state = this.stateFor(envId);
+    if (state.pending !== pending) return;
+    state.pending = null;
+    if (!state.dirty || state.desired?.revision !== pending.entry.revision) return;
+    this.enqueueEntry(pending.entry).catch(this.onError);
+  }
+
+  enqueueEntry(entry) {
+    const state = this.stateFor(entry.envId);
+    const write = this.writeTail.then(() => this.store.saveConsoleSession(entry.envId, entry.snapshot));
     this.writeTail = write.catch(() => undefined);
-    this.activeWrites.add(write);
-    write.then(
-      () => this.activeWrites.delete(write),
-      () => this.activeWrites.delete(write),
+    state.active.add(entry);
+    const tracked = write.then(
+      () => { this.markWriteSuccess(state, entry); },
+      error => { this.markWriteFailure(state, entry, error); throw error; },
     );
-    return write;
+    this.activeWrites.add(tracked);
+    this.activeEntries.set(tracked, entry);
+    const cleanup = () => {
+      state.active.delete(entry);
+      this.activeWrites.delete(tracked);
+      this.activeEntries.delete(tracked);
+    };
+    tracked.then(
+      () => { cleanup(); this.scheduleRemaining(state, entry, false); },
+      () => { cleanup(); this.scheduleRemaining(state, entry, true); },
+    );
+    return tracked;
+  }
+
+  markWriteSuccess(state, entry) {
+    state.baseline = entry.fingerprint;
+    state.baselineSnapshot = entry.snapshot;
+    state.lastError = null;
+    if (state.desired?.revision === entry.revision) state.desired = null;
+    state.dirty = !!state.desired && state.desired.fingerprint !== state.baseline;
+  }
+
+  markWriteFailure(state, entry, error) {
+    state.lastError = error;
+    if (!state.desired) state.desired = entry;
+    state.dirty = state.baseline === UNLOADED_BASELINE
+      || state.desired.fingerprint !== state.baseline;
+  }
+
+  scheduleRemaining(state, completed, failed) {
+    const desired = state.desired;
+    if (!state.dirty || !desired || state.pending || this.hasActiveFingerprint(state, desired.fingerprint)) return;
+    if (failed && desired.revision === completed.revision) return;
+    this.armPending(state, desired);
+  }
+
+  adoptBaseline(state, session) {
+    this.cancelPending(state);
+    state.baseline = session == null ? null : sessionFingerprint(session);
+    state.baselineSnapshot = session;
+    state.desired = null;
+    state.dirty = false;
+    state.lastError = null;
+  }
+
+  async finishConcurrentLoad(state, fallback) {
+    await this.flush();
+    return state.desired?.snapshot || state.baselineSnapshot || fallback;
+  }
+
+  collectFlushWrites(attempted) {
+    const writes = [];
+    for (const state of this.states.values()) {
+      this.cancelPending(state);
+      const desired = state.desired;
+      if (!state.dirty || !desired || this.hasActiveFingerprint(state, desired.fingerprint) || attempted.has(desired)) continue;
+      attempted.add(desired);
+      writes.push(this.enqueueEntry(desired));
+    }
+    return writes;
+  }
+
+  async flushAll(attempted) {
+    let firstError = null;
+    let hasError = false;
+    let stableVersion = this.changeVersion;
+    while (true) {
+      const observedVersion = this.changeVersion;
+      const active = [...this.activeWrites];
+      active.forEach(write => {
+        const entry = this.activeEntries.get(write);
+        if (entry) attempted.add(entry);
+      });
+      const writes = this.collectFlushWrites(attempted);
+      if (!active.length && !writes.length) {
+        await Promise.resolve();
+        const pending = [...this.states.values()].some(state => state.pending);
+        if (observedVersion === this.changeVersion && !this.activeWrites.size && !pending) {
+          stableVersion = observedVersion;
+          break;
+        }
+        continue;
+      }
+      const results = await Promise.allSettled([...active, ...writes]);
+      const failure = results.find(result => result.status === 'rejected');
+      if (!hasError && failure) {
+        hasError = true;
+        firstError = failure.reason;
+      }
+    }
+    return Object.freeze({ stableVersion, hasError, firstError });
+  }
+
+  async flushRequests() {
+    const attempted = new Set();
+    let firstError = null;
+    let hasError = false;
+    while (true) {
+      const result = await this.flushAll(attempted);
+      if (!hasError && result.hasError) {
+        hasError = true;
+        firstError = result.firstError;
+      }
+      await Promise.resolve();
+      if (result.stableVersion === this.changeVersion) break;
+    }
+    this.flushPromise = null;
+    if (hasError) throw firstError;
   }
 }

@@ -5,6 +5,8 @@ use uuid::Uuid;
 
 use super::schedule_domain;
 
+const ELIGIBLE_SCHEDULE_PREDICATE: &str = "s.enabled=1 AND w.deleted_at IS NULL";
+
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UpsertScheduleInput {
@@ -184,18 +186,18 @@ pub fn delete(connection: &Connection, workflow_id: &str) -> Result<(), String> 
 }
 
 pub fn next_due(connection: &Connection) -> Result<Option<NextDueSchedule>, String> {
+    let sql = format!(
+        "SELECT s.id,s.next_run_at FROM workflow_schedules s
+         JOIN workflow_definitions w ON w.id=s.workflow_id
+         WHERE {ELIGIBLE_SCHEDULE_PREDICATE} ORDER BY s.next_run_at LIMIT 1"
+    );
     connection
-        .query_row(
-            "SELECT id,next_run_at FROM workflow_schedules
-             WHERE enabled=1 ORDER BY next_run_at LIMIT 1",
-            [],
-            |row| {
-                Ok(NextDueSchedule {
-                    schedule_id: row.get(0)?,
-                    next_run_at: row.get(1)?,
-                })
-            },
-        )
+        .query_row(&sql, [], |row| {
+            Ok(NextDueSchedule {
+                schedule_id: row.get(0)?,
+                next_run_at: row.get(1)?,
+            })
+        })
         .optional()
         .map_err(db)
 }
@@ -330,7 +332,7 @@ fn due_query(limit: &str) -> String {
          v.database_name,v.database_type,v.schema_name
          FROM workflow_schedules s JOIN workflow_definitions w ON w.id=s.workflow_id
          JOIN workflow_versions v ON v.id=s.workflow_version_id AND v.workflow_id=s.workflow_id
-         WHERE s.enabled=1 AND s.next_run_at<=?1 AND w.deleted_at IS NULL ORDER BY s.next_run_at {limit}"
+         WHERE {ELIGIBLE_SCHEDULE_PREDICATE} AND s.next_run_at<=?1 ORDER BY s.next_run_at {limit}"
     )
 }
 
@@ -758,6 +760,39 @@ mod tests {
         assert!(skip_missed(&mut connection, "2026-07-16T00:10:00Z")
             .unwrap()
             .is_empty());
+    }
+
+    #[test]
+    fn next_due_ignores_deleted_workflow_and_selects_eligible_schedule() {
+        let mut connection = connection();
+        seed_workflow(&connection, "workflow-2", "version-2");
+        upsert(&mut connection, &input("workflow-1", true), BASE).unwrap();
+        let expected = upsert(&mut connection, &input("workflow-2", true), DUE).unwrap();
+        connection
+            .execute(
+                "UPDATE workflow_definitions SET enabled=0,deleted_at=?1 WHERE id='workflow-1'",
+                params![BASE],
+            )
+            .unwrap();
+
+        let next = next_due(&connection).unwrap().unwrap();
+
+        assert_eq!(next.schedule_id, expected.id);
+        assert_eq!(next.next_run_at, "2026-07-16T00:02:00Z");
+    }
+
+    #[test]
+    fn next_due_returns_none_when_only_schedule_belongs_to_deleted_workflow() {
+        let mut connection = connection();
+        upsert(&mut connection, &input("workflow-1", true), BASE).unwrap();
+        connection
+            .execute(
+                "UPDATE workflow_definitions SET enabled=0,deleted_at=?1 WHERE id='workflow-1'",
+                params![BASE],
+            )
+            .unwrap();
+
+        assert_eq!(next_due(&connection).unwrap(), None);
     }
 
     #[test]

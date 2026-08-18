@@ -5,6 +5,8 @@ use rusqlite::Connection;
 use super::migrations;
 
 const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
+const SQLITE_ENABLED: i64 = 1;
+const WAL_MODE: &str = "wal";
 
 #[derive(Clone)]
 pub struct WorkflowDb {
@@ -15,6 +17,7 @@ impl WorkflowDb {
     pub fn initialize(path: PathBuf) -> Result<Self, String> {
         let database = Self { path };
         let mut connection = database.open_connection()?;
+        configure_database(&connection)?;
         migrations::migrate(&mut connection)?;
         Ok(database)
     }
@@ -34,24 +37,29 @@ fn configure_connection(connection: &Connection) -> Result<(), String> {
     connection
         .execute_batch(
             "PRAGMA foreign_keys = ON;
-             PRAGMA journal_mode = WAL;
              PRAGMA synchronous = NORMAL;",
         )
-        .map_err(|error| format!("配置 workflow.db 连接失败：{error}"))?;
-    verify_connection(connection)
+        .map_err(|error| format!("配置 workflow.db 连接失败：{error}"))
 }
 
-fn verify_connection(connection: &Connection) -> Result<(), String> {
+fn configure_database(connection: &Connection) -> Result<(), String> {
+    connection
+        .execute_batch("PRAGMA journal_mode = WAL;")
+        .map_err(|error| format!("配置 workflow.db WAL 模式失败：{error}"))?;
+    verify_database(connection)
+}
+
+fn verify_database(connection: &Connection) -> Result<(), String> {
     let foreign_keys: i64 = connection
         .query_row("PRAGMA foreign_keys", [], |row| row.get(0))
         .map_err(|error| format!("检查 workflow.db 外键配置失败：{error}"))?;
-    if foreign_keys != 1 {
+    if foreign_keys != SQLITE_ENABLED {
         return Err("workflow.db 外键未启用".into());
     }
     let journal_mode: String = connection
         .query_row("PRAGMA journal_mode", [], |row| row.get(0))
         .map_err(|error| format!("检查 workflow.db WAL 配置失败：{error}"))?;
-    if !journal_mode.eq_ignore_ascii_case("wal") {
+    if !journal_mode.eq_ignore_ascii_case(WAL_MODE) {
         return Err(format!("workflow.db WAL 未启用，当前模式：{journal_mode}"));
     }
     Ok(())
@@ -61,6 +69,8 @@ fn verify_connection(connection: &Connection) -> Result<(), String> {
 mod tests {
     use super::*;
     use tempfile::tempdir;
+
+    const SQLITE_SYNCHRONOUS_NORMAL: i64 = 1;
 
     #[test]
     fn initializes_idempotently_with_required_pragmas() {
@@ -74,7 +84,19 @@ mod tests {
                 row.get(0)
             })
             .unwrap();
-        assert_eq!(version, 7);
+        let foreign_keys: i64 = connection
+            .query_row("PRAGMA foreign_keys", [], |row| row.get(0))
+            .unwrap();
+        let synchronous: i64 = connection
+            .query_row("PRAGMA synchronous", [], |row| row.get(0))
+            .unwrap();
+        let journal_mode: String = connection
+            .query_row("PRAGMA journal_mode", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, 8);
+        assert_eq!(foreign_keys, SQLITE_ENABLED);
+        assert_eq!(synchronous, SQLITE_SYNCHRONOUS_NORMAL);
+        assert_eq!(journal_mode, WAL_MODE);
     }
 
     #[test]

@@ -48,7 +48,7 @@ pub fn workflow_copy(db: State<'_, WorkflowDb>, workflow_id: String) -> Result<S
 
 #[tauri::command]
 pub fn workflow_archive(db: State<'_, WorkflowDb>, workflow_id: String) -> Result<(), String> {
-    repository::archive_workflow(&db.open_connection()?, &workflow_id)
+    repository::archive_workflow(&mut db.open_connection()?, &workflow_id)
 }
 
 #[tauri::command]

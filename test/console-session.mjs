@@ -17,6 +17,18 @@ const consoleState = (key, sql, open = true) => ({
   open,
 });
 
+const sessionState = sql => ({
+  consoles: [consoleState('console-0', sql)],
+  activeConsoleKey: 'console-0',
+  nextSequence: 1,
+});
+
+function deferred() {
+  let resolve;
+  const promise = new Promise(done => { resolve = done; });
+  return Object.freeze({ promise, resolve });
+}
+
 async function testLegacyDraftMigration() {
   const saved = [];
   const manager = new ConsoleSessionManager({
@@ -33,6 +45,9 @@ async function testLegacyDraftMigration() {
   assert.equal(session.activeConsoleKey, 'console-0');
   assert.equal(session.nextSequence, 1);
   assert.equal(session.consoles[0].open, true);
+  assert.equal(saved.length, 1);
+  manager.schedule('env-a', session);
+  await manager.flush();
   assert.equal(saved.length, 1);
 }
 
@@ -79,6 +94,281 @@ async function testSessionScheduling() {
   assert.throws(() => manager.schedule('env-a', {
     consoles: [consoleState('console-0', 'A', false)], activeConsoleKey: 'console-0', nextSequence: 1,
   }), /活动控制台已关闭/);
+}
+
+async function testUnchangedSessionDeduplication() {
+  const saved = [];
+  const stored = sessionState('SELECT persisted;');
+  const manager = new ConsoleSessionManager({
+    store: {
+      getConsoleSession: async () => stored,
+      getConsoleDraft: async () => null,
+      saveConsoleSession: async (envId, session) => saved.push({ envId, session }),
+    },
+    onError: error => { throw error; },
+    saveDelayMs: 5,
+  });
+  const loaded = await manager.load('env-a');
+  manager.schedule('env-a', loaded);
+  manager.schedule('env-a', sessionState('SELECT persisted;'));
+  await manager.flush();
+  assert.equal(saved.length, 0);
+
+  manager.schedule('env-a', sessionState('SELECT changed;'));
+  const firstFlush = manager.flush();
+  const secondFlush = manager.flush();
+  assert.equal(firstFlush, secondFlush);
+  await firstFlush;
+  assert.equal(saved.length, 1);
+  manager.schedule('env-a', sessionState('SELECT changed;'));
+  await manager.flush();
+  assert.equal(saved.length, 1);
+}
+
+async function testFlushPersistsLastEditWithinDebounceWindow() {
+  const saved = [];
+  let persisted = null;
+  const manager = new ConsoleSessionManager({
+    store: {
+      getConsoleSession: async () => persisted,
+      getConsoleDraft: async () => null,
+      saveConsoleSession: async (envId, session) => { saved.push({ envId, session }); persisted = session; },
+    },
+    onError: error => { throw error; },
+    saveDelayMs: 1000,
+  });
+  manager.schedule('env-a', sessionState('SELECT 1;'));
+  manager.schedule('env-a', sessionState('SELECT 2;'));
+  manager.schedule('env-a', sessionState('SELECT 3;'));
+  await manager.flush();
+  assert.equal(saved.length, 1);
+  assert.equal(persisted.consoles[0].sql, 'SELECT 3;');
+}
+
+async function testRevertToBaselineSkipsWrite() {
+  const saved = [];
+  const stored = sessionState('SELECT base;');
+  const manager = new ConsoleSessionManager({
+    store: {
+      getConsoleSession: async () => stored,
+      getConsoleDraft: async () => null,
+      saveConsoleSession: async (envId, session) => saved.push({ envId, session }),
+    },
+    onError: error => { throw error; },
+    saveDelayMs: 5,
+  });
+  await manager.load('env-a');
+  manager.schedule('env-a', sessionState('SELECT edited;'));
+  manager.schedule('env-a', sessionState('SELECT base;'));
+  await delay(20);
+  await manager.flush();
+  assert.equal(saved.length, 0);
+}
+
+async function testRevertDuringInFlightWriteRestoresBaseline() {
+  const writeGate = deferred();
+  const saved = [];
+  let persisted = sessionState('SELECT base;');
+  let gated = false;
+  const manager = new ConsoleSessionManager({
+    store: {
+      getConsoleSession: async () => persisted,
+      getConsoleDraft: async () => null,
+      saveConsoleSession: async (envId, session) => {
+        if (!gated) { gated = true; await writeGate.promise; }
+        saved.push({ envId, session });
+        persisted = session;
+      },
+    },
+    onError: error => { throw error; },
+    saveDelayMs: 5,
+  });
+  await manager.load('env-a');
+  manager.schedule('env-a', sessionState('SELECT edited;'));
+  await delay(20);
+  manager.schedule('env-a', sessionState('SELECT base;'));
+  writeGate.resolve();
+  await manager.flush();
+  assert.equal(saved.length, 2);
+  assert.equal(persisted.consoles[0].sql, 'SELECT base;');
+}
+
+async function testFailedSaveRemainsDirty() {
+  let attempts = 0;
+  const reported = [];
+  const manager = new ConsoleSessionManager({
+    store: {
+      getConsoleSession: async () => null,
+      getConsoleDraft: async () => null,
+      saveConsoleSession: async () => {
+        attempts += 1;
+        if (attempts === 1) throw new Error('disk full');
+      },
+    },
+    onError: error => reported.push(error.message),
+    saveDelayMs: 5,
+  });
+  manager.schedule('env-a', sessionState('SELECT retry;'));
+  await delay(20);
+  assert.deepEqual(reported, ['disk full']);
+  assert.equal(attempts, 1);
+  await manager.flush();
+  assert.equal(attempts, 2);
+  await manager.flush();
+  assert.equal(attempts, 2);
+}
+
+async function testFlushWaitsForAllWrites() {
+  const slowStarted = deferred();
+  const slowGate = deferred();
+  let failedAttempts = 0;
+  const manager = new ConsoleSessionManager({
+    store: {
+      getConsoleSession: async () => null,
+      getConsoleDraft: async () => null,
+      saveConsoleSession: async envId => {
+        if (envId === 'env-a') { failedAttempts += 1; throw new Error('env-a failed'); }
+        slowStarted.resolve();
+        await slowGate.promise;
+      },
+    },
+    onError: () => {},
+    saveDelayMs: 100,
+  });
+  manager.schedule('env-a', sessionState('SELECT A;'));
+  manager.schedule('env-b', sessionState('SELECT B;'));
+  let settled = false;
+  const flush = manager.flush().finally(() => { settled = true; });
+  await slowStarted.promise;
+  assert.equal(settled, false);
+  slowGate.resolve();
+  await assert.rejects(flush, /env-a failed/);
+  assert.equal(settled, true);
+  assert.equal(failedAttempts, 1);
+  await assert.rejects(manager.flush(), /env-a failed/);
+  assert.equal(failedAttempts, 2);
+}
+
+async function testConcurrentFlushDoesNotRetryFailure() {
+  let attempts = 0;
+  const manager = new ConsoleSessionManager({
+    store: {
+      getConsoleSession: async () => null,
+      getConsoleDraft: async () => null,
+      saveConsoleSession: async () => {
+        attempts += 1;
+        if (attempts === 1) throw new Error('transient failure');
+      },
+    },
+    onError: () => {},
+    saveDelayMs: 100,
+  });
+  manager.schedule('env-a', sessionState('SELECT once;'));
+  const firstFlush = manager.flush();
+  const secondFlush = manager.flush();
+  assert.equal(firstFlush, secondFlush);
+  await assert.rejects(firstFlush, /transient failure/);
+  assert.equal(attempts, 1);
+  await manager.flush();
+  assert.equal(attempts, 2);
+}
+
+async function testFlushBarrierAbsorbsMicrotaskSchedule() {
+  const saved = [];
+  const manager = new ConsoleSessionManager({
+    store: {
+      getConsoleSession: async () => null,
+      getConsoleDraft: async () => null,
+      saveConsoleSession: async (envId, session) => saved.push({ envId, session }),
+    },
+    onError: error => { throw error; },
+    saveDelayMs: 100,
+  });
+  let secondFlush;
+  const scheduled = Promise.resolve().then(() => {
+    manager.schedule('env-a', sessionState('SELECT microtask;'));
+    secondFlush = manager.flush();
+  });
+  const firstFlush = manager.flush();
+  await firstFlush;
+  await scheduled;
+  await secondFlush;
+  assert.equal(firstFlush, secondFlush);
+  assert.equal(saved.length, 1);
+}
+
+async function testLoadJoinsFlushStartedBeforeSchedule() {
+  let persisted = null;
+  const saves = [];
+  const manager = new ConsoleSessionManager({
+    store: {
+      getConsoleSession: async () => persisted,
+      getConsoleDraft: async () => null,
+      saveConsoleSession: async (envId, session) => {
+        saves.push({ envId, session });
+        persisted = session;
+      },
+    },
+    onError: error => { throw error; },
+    saveDelayMs: 100,
+  });
+  const idleFlush = manager.flush();
+  let latest;
+  let load;
+  queueMicrotask(() => {
+    latest = manager.schedule('env-a', sessionState('SELECT during flush;'));
+    load = manager.load('env-a');
+  });
+  await idleFlush;
+  const loaded = await load;
+  assert.deepEqual(loaded, latest);
+  assert.equal(saves.length, 1);
+  assert.equal(saves[0].session.consoles[0].sql, 'SELECT during flush;');
+}
+
+async function testLoadDoesNotOverwriteNewerSession() {
+  const readGate = deferred();
+  let persisted = null;
+  const saves = [];
+  const manager = new ConsoleSessionManager({
+    store: {
+      getConsoleSession: async () => { await readGate.promise; return persisted; },
+      getConsoleDraft: async () => ({ sql: 'SELECT legacy;' }),
+      saveConsoleSession: async (envId, session) => {
+        saves.push({ envId, session });
+        persisted = session;
+      },
+    },
+    onError: error => { throw error; },
+    saveDelayMs: 100,
+  });
+  const load = manager.load('env-a');
+  const latest = manager.schedule('env-a', sessionState('SELECT newest;'));
+  readGate.resolve();
+  const loaded = await load;
+  assert.deepEqual(loaded, latest);
+  assert.equal(saves.length, 1);
+  assert.equal(saves[0].session.consoles[0].sql, 'SELECT newest;');
+}
+
+async function testConcurrentLoadsShareResult() {
+  const readGate = deferred();
+  let reads = 0;
+  const stored = sessionState('SELECT shared;');
+  const manager = new ConsoleSessionManager({
+    store: {
+      getConsoleSession: async () => { reads += 1; await readGate.promise; return stored; },
+      getConsoleDraft: async () => null,
+      saveConsoleSession: async () => { throw new Error('load must not write'); },
+    },
+    onError: error => { throw error; },
+  });
+  const first = manager.load('env-a');
+  const second = manager.load('env-a');
+  readGate.resolve();
+  assert.deepEqual(await first, stored);
+  assert.deepEqual(await second, stored);
+  assert.equal(reads, 1);
 }
 
 function testConsoleWorkspace() {
@@ -206,6 +496,17 @@ function testConsoleMenuViews() {
 
 await testLegacyDraftMigration();
 await testSessionScheduling();
+await testUnchangedSessionDeduplication();
+await testFlushPersistsLastEditWithinDebounceWindow();
+await testRevertToBaselineSkipsWrite();
+await testRevertDuringInFlightWriteRestoresBaseline();
+await testFailedSaveRemainsDirty();
+await testFlushWaitsForAllWrites();
+await testConcurrentFlushDoesNotRetryFailure();
+await testFlushBarrierAbsorbsMicrotaskSchedule();
+await testLoadJoinsFlushStartedBeforeSchedule();
+await testLoadDoesNotOverwriteNewerSession();
+await testConcurrentLoadsShareResult();
 testConsoleWorkspace();
 testConsoleMenuViews();
-console.log('PASS  console session: migration, persistence, restore, naming and launcher views');
+console.log('PASS  console session: deduplicated persistence, reliable flush, restore, naming and launcher views');

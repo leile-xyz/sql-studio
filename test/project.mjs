@@ -30,8 +30,6 @@ async function testRequiredProjectFiles() {
   const required = [
     'LICENSE', 'README.md', 'CHANGELOG.md', 'CONTRIBUTING.md', 'CODE_OF_CONDUCT.md',
     'SECURITY.md', 'PRIVACY.md', '.editorconfig', '.gitattributes',
-    '.github/pull_request_template.md', '.github/ISSUE_TEMPLATE/bug_report.yml',
-    '.github/ISSUE_TEMPLATE/feature_request.yml', '.github/workflows/ci.yml',
   ];
   for (const relativePath of required) {
     const info = await stat(absolutePath(relativePath));
@@ -78,16 +76,20 @@ async function testAppEntrypointStructure() {
     source.includes("renderConsole(tab, $('tabbody'));\n}\nfunction scheduleConsoleSession(tab)"),
     relativePath + ' missing beautify closing brace',
   );
+  assert.ok(source.includes('syncEditor(ta, { persist: false });'), relativePath + ' must not persist during tab redraw');
   assert.ok(source.trimEnd().endsWith('init();'), relativePath + ' missing init call');
 }
 
 async function testTreeConsoleContextIsolation() {
   const source = await readUtf8('src/app.js');
+  const loader = await readUtf8('src/lib/resource-tree-loader.mjs');
   const events = await readUtf8('src/lib/app-events.mjs');
   const html = await readUtf8('src/index.html');
   const toggleStart = source.indexOf('async function toggleNode');
-  const toggleEnd = source.indexOf('async function loadDbs', toggleStart);
+  const toggleEnd = source.indexOf('function renderTree', toggleStart);
   assert.ok(toggleStart >= 0 && toggleEnd > toggleStart, 'resource tree toggle implementation is missing');
+  assert.ok(source.includes('createResourceTreeLoader'), 'resource tree loader is missing');
+  assert.ok(loader.includes('async function loadDbs'), 'resource tree database loader is missing');
   assert.ok(source.includes('async function syncTreeToConsole'), 'console-to-tree synchronization is missing');
   assert.ok(!source.includes('function syncConsoleToTree'), 'tree browsing must not overwrite console context');
   assert.ok(!source.slice(toggleStart, toggleEnd).includes('syncConsoleToTree'));

@@ -93,8 +93,8 @@ function renderSearch(tree, filter, nodeMap, loading, searchError) {
       }
     }
   }
-  if (!matches.length && loading) return '<div class="tree-msg"><span class="spinner" style="display:inline-block;vertical-align:-4px"></span> 正在加载数据库和数据表…</div>';
   const errorHtml = errors.length ? `<div class="tree-msg">资源加载失败：${escapeHtml(errors.join('；'))}</div>` : '';
+  if (!matches.length && loading) return errorHtml + '<div class="tree-msg"><span class="spinner" style="display:inline-block;vertical-align:-4px"></span> 正在加载数据库和数据表…</div>';
   if (!matches.length) return errorHtml + '<div class="tree-msg">数据库和数据表中无匹配</div>';
   const pattern = new RegExp('(' + filter.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'i');
   return errorHtml + matches.map(match => {

@@ -1,6 +1,7 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use chrono::{DateTime, Utc};
+use rusqlite::Connection;
 use serde_json::Value;
 use tauri::{AppHandle, Manager};
 use tokio::sync::{oneshot, Mutex, Notify};
@@ -88,10 +89,19 @@ async fn run_scheduler(app: AppHandle, shared: SchedulerShared) {
         report_scheduler_error(&app, "SCHEDULER_STARTUP_FAILED", &error);
     }
     loop {
-        if let Err(error) = run_cycle(&app, &shared).await {
+        let db = app.state::<WorkflowDb>();
+        let mut connection = match db.open_connection() {
+            Ok(connection) => connection,
+            Err(error) => {
+                report_scheduler_error(&app, "SCHEDULER_DB_OPEN_FAILED", &error);
+                shared.wake.notified().await;
+                continue;
+            }
+        };
+        if let Err(error) = run_cycle(&app, &shared, &mut connection).await {
             report_scheduler_error(&app, "SCHEDULER_CYCLE_FAILED", &error);
         }
-        wait_for_next(&app, &shared.wake).await;
+        wait_for_next(&app, &shared.wake, connection).await;
     }
 }
 
@@ -105,15 +115,16 @@ async fn handle_startup(app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-async fn run_cycle(app: &AppHandle, shared: &SchedulerShared) -> Result<(), String> {
-    enqueue_due(app)?;
+async fn run_cycle(
+    app: &AppHandle,
+    shared: &SchedulerShared,
+    connection: &mut Connection,
+) -> Result<(), String> {
+    enqueue_due(app, connection)?;
     loop {
-        let db = app.state::<WorkflowDb>();
         let now = schedule_domain::format_utc(Utc::now());
         let submission = shared.submission.lock().await;
-        let Some(claimed) =
-            schedule_repository::claim_next_pending(&mut db.open_connection()?, &now)?
-        else {
+        let Some(claimed) = schedule_repository::claim_next_pending(connection, &now)? else {
             return Ok(());
         };
         drop(submission);
@@ -123,12 +134,11 @@ async fn run_cycle(app: &AppHandle, shared: &SchedulerShared) -> Result<(), Stri
     }
 }
 
-fn enqueue_due(app: &AppHandle) -> Result<(), String> {
+fn enqueue_due(app: &AppHandle, connection: &mut Connection) -> Result<(), String> {
     let db = app.state::<WorkflowDb>();
     loop {
         let now = schedule_domain::format_utc(Utc::now());
-        let Some(result) = schedule_repository::enqueue_due(&mut db.open_connection()?, &now)?
-        else {
+        let Some(result) = schedule_repository::enqueue_due(connection, &now)? else {
             return Ok(());
         };
         if let schedule_repository::DueScheduleResult::Skipped(item) = result {
@@ -278,31 +288,19 @@ async fn complete_waiter(
     result.map(|_| ())
 }
 
-async fn wait_for_next(app: &AppHandle, wake: &Notify) {
-    let db = app.state::<WorkflowDb>();
-    let connection = match db.open_connection() {
-        Ok(connection) => connection,
-        Err(error) => {
-            report_scheduler_error(app, "SCHEDULER_DB_OPEN_FAILED", &error);
-            wake.notified().await;
-            return;
-        }
-    };
-    let next = match schedule_repository::next_due(&connection) {
-        Ok(Some(next)) => next,
+async fn wait_for_next(app: &AppHandle, wake: &Notify, connection: Connection) {
+    let duration = match next_wait_duration(&connection) {
+        Ok(Some(duration)) => duration,
         Ok(None) => {
             wake.notified().await;
             return;
         }
-        Err(error) => {
+        Err(NextWaitError::Query(error)) => {
             report_scheduler_error(app, "SCHEDULER_NEXT_DUE_FAILED", &error);
             wake.notified().await;
             return;
         }
-    };
-    let duration = match wait_duration(&next.next_run_at) {
-        Ok(duration) => duration,
-        Err(error) => {
+        Err(NextWaitError::InvalidTime(error)) => {
             report_scheduler_error(app, "SCHEDULER_NEXT_RUN_INVALID", &error);
             wake.notified().await;
             return;
@@ -312,6 +310,19 @@ async fn wait_for_next(app: &AppHandle, wake: &Notify) {
         _ = tokio::time::sleep(duration) => {},
         _ = wake.notified() => {},
     }
+}
+
+#[derive(Debug)]
+enum NextWaitError {
+    Query(String),
+    InvalidTime(String),
+}
+
+fn next_wait_duration(connection: &Connection) -> Result<Option<Duration>, NextWaitError> {
+    schedule_repository::next_due(connection)
+        .map_err(NextWaitError::Query)?
+        .map(|next| wait_duration(&next.next_run_at).map_err(NextWaitError::InvalidTime))
+        .transpose()
 }
 
 fn wait_duration(value: &str) -> Result<Duration, String> {
@@ -385,7 +396,65 @@ fn credential_read_failed() -> PreflightFailure<'static> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::storage::migrations;
+    use chrono::Duration as ChronoDuration;
+    use rusqlite::params;
     use serde_json::json;
+
+    struct ScheduleFixture<'a> {
+        workflow_id: &'a str,
+        version_id: &'a str,
+        schedule_id: &'a str,
+        next_run_at: &'a str,
+        deleted_at: Option<&'a str>,
+    }
+
+    fn schedule_connection() -> Connection {
+        let mut connection = Connection::open_in_memory().unwrap();
+        connection.execute_batch("PRAGMA foreign_keys=ON;").unwrap();
+        migrations::migrate(&mut connection).unwrap();
+        connection
+    }
+
+    fn seed_schedule(connection: &Connection, fixture: ScheduleFixture<'_>) {
+        let enabled = i64::from(fixture.deleted_at.is_none());
+        connection
+            .execute(
+                "INSERT INTO workflow_definitions(id,name,description,environment_id,instance_id,
+                 instance_name,database_name,database_type,draft_revision,enabled,created_at,
+                 updated_at,deleted_at) VALUES(?1,?1,'','env','instance','instance','database',
+                 'mysql',1,?2,?3,?3,?4)",
+                params![
+                    fixture.workflow_id,
+                    enabled,
+                    fixture.next_run_at,
+                    fixture.deleted_at
+                ],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO workflow_versions(id,workflow_id,version_number,
+                 source_draft_revision,name,description,environment_id,instance_id,instance_name,
+                 database_name,database_type,published_at) VALUES(?1,?2,1,1,?2,'','env',
+                 'instance','instance','database','mysql',?3)",
+                params![fixture.version_id, fixture.workflow_id, fixture.next_run_at],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO workflow_schedules(id,workflow_id,workflow_version_id,
+                 cron_expression,timezone,enabled,next_run_at,created_at,updated_at)
+                 VALUES(?1,?2,?3,'0 9 * * *','UTC',1,?4,?4,?4)",
+                params![
+                    fixture.schedule_id,
+                    fixture.workflow_id,
+                    fixture.version_id,
+                    fixture.next_run_at
+                ],
+            )
+            .unwrap();
+    }
 
     #[test]
     fn builds_environment_origin_without_credentials() {
@@ -414,5 +483,36 @@ mod tests {
             Duration::ZERO
         );
         assert!(wait_duration("invalid").is_err());
+    }
+
+    #[test]
+    fn deleted_stale_schedule_does_not_create_zero_wait() {
+        let connection = schedule_connection();
+        let stale_time = "2020-01-01T00:00:00Z";
+        let future_time = schedule_domain::format_utc(Utc::now() + ChronoDuration::hours(1));
+        seed_schedule(
+            &connection,
+            ScheduleFixture {
+                workflow_id: "deleted-workflow",
+                version_id: "deleted-version",
+                schedule_id: "deleted-schedule",
+                next_run_at: stale_time,
+                deleted_at: Some(stale_time),
+            },
+        );
+        seed_schedule(
+            &connection,
+            ScheduleFixture {
+                workflow_id: "active-workflow",
+                version_id: "active-version",
+                schedule_id: "active-schedule",
+                next_run_at: &future_time,
+                deleted_at: None,
+            },
+        );
+
+        let duration = next_wait_duration(&connection).unwrap().unwrap();
+
+        assert!(!duration.is_zero());
     }
 }

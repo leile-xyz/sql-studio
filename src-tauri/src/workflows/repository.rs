@@ -99,16 +99,19 @@ pub fn copy_workflow(connection: &mut Connection, id: &str) -> Result<String, St
     )
 }
 
-pub fn archive_workflow(connection: &Connection, id: &str) -> Result<(), String> {
-    let changed = connection.execute("UPDATE workflow_definitions SET enabled=0,deleted_at=?1,updated_at=?1 WHERE id=?2 AND deleted_at IS NULL", params![now(), id]).map_err(db)?;
-    affected(changed, "流程不存在或已删除")?;
-    connection
-        .execute(
-            "DELETE FROM workflow_schedules WHERE workflow_id=?1",
-            params![id],
-        )
+pub fn archive_workflow(connection: &mut Connection, id: &str) -> Result<(), String> {
+    let tx = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(db)?;
-    Ok(())
+    let timestamp = now();
+    let changed = tx.execute("UPDATE workflow_definitions SET enabled=0,deleted_at=?1,updated_at=?1 WHERE id=?2 AND deleted_at IS NULL", params![timestamp, id]).map_err(db)?;
+    affected(changed, "流程不存在或已删除")?;
+    tx.execute(
+        "DELETE FROM workflow_schedules WHERE workflow_id=?1",
+        params![id],
+    )
+    .map_err(db)?;
+    tx.commit().map_err(db)
 }
 
 pub fn set_workflow_enabled(
@@ -510,6 +513,36 @@ mod tests {
         }
     }
 
+    fn create_scheduled_workflow(connection: &mut Connection) -> String {
+        let workflow_id = create_workflow(connection, &create_input("mysql", None)).unwrap();
+        let version_id = publish_workflow(
+            connection,
+            &PublishWorkflowInput {
+                workflow_id: workflow_id.clone(),
+                expected_draft_revision: 1,
+            },
+        )
+        .unwrap();
+        set_workflow_enabled(
+            connection,
+            &SetWorkflowEnabledInput {
+                workflow_id: workflow_id.clone(),
+                enabled: true,
+            },
+        )
+        .unwrap();
+        let timestamp = now();
+        connection
+            .execute(
+                "INSERT INTO workflow_schedules(id,workflow_id,workflow_version_id,
+                 cron_expression,timezone,enabled,next_run_at,created_at,updated_at)
+                 VALUES('schedule',?1,?2,'0 9 * * *','UTC',1,?3,?3,?3)",
+                params![workflow_id, version_id, timestamp],
+            )
+            .unwrap();
+        workflow_id
+    }
+
     #[test]
     fn supports_crud_copy_archive_and_revision_conflict() {
         let mut connection = connection();
@@ -530,8 +563,57 @@ mod tests {
             .starts_with("REVISION_CONFLICT:"));
         let copied = copy_workflow(&mut connection, &id).unwrap();
         assert_eq!(list_workflows(&connection, "env").unwrap().len(), 2);
-        archive_workflow(&connection, &copied).unwrap();
+        archive_workflow(&mut connection, &copied).unwrap();
         assert_eq!(list_workflows(&connection, "env").unwrap().len(), 1);
+    }
+
+    #[test]
+    fn archive_removes_schedule_in_same_transaction() {
+        let mut connection = connection();
+        let workflow_id = create_scheduled_workflow(&mut connection);
+
+        archive_workflow(&mut connection, &workflow_id).unwrap();
+
+        let schedule_count: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM workflow_schedules WHERE workflow_id=?1",
+                params![workflow_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(schedule_count, 0);
+        assert!(get_workflow(&connection, &workflow_id).is_err());
+    }
+
+    #[test]
+    fn archive_rolls_back_when_schedule_delete_fails() {
+        let mut connection = connection();
+        let workflow_id = create_scheduled_workflow(&mut connection);
+        connection
+            .execute_batch(
+                "CREATE TRIGGER reject_schedule_delete BEFORE DELETE ON workflow_schedules
+                 BEGIN SELECT RAISE(ABORT, 'forced schedule delete failure'); END;",
+            )
+            .unwrap();
+
+        assert!(archive_workflow(&mut connection, &workflow_id).is_err());
+
+        let state = connection
+            .query_row(
+                "SELECT enabled,deleted_at FROM workflow_definitions WHERE id=?1",
+                params![workflow_id],
+                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, Option<String>>(1)?)),
+            )
+            .unwrap();
+        let schedule_count: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM workflow_schedules WHERE workflow_id=?1",
+                params![workflow_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(state, (1, None));
+        assert_eq!(schedule_count, 1);
     }
 
     #[test]
