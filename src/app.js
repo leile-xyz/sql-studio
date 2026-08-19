@@ -21,6 +21,7 @@ import { renderTabBarView, showAllConsolesMenu, showConsoleMenu, showTabContextM
 import { ConsoleRenameController } from './lib/console-rename.mjs';
 import { closeWorkspaceTabs, consoleSessionState, createNewConsole, defaultConsoleTab, deleteWorkspaceConsole, restoreConsoleWorkspace } from './lib/console-workspace.mjs';
 import { bindWorkflowManager } from './lib/workflow-manager.mjs';
+import { createSessionRecovery } from './lib/session-recovery.mjs';
 const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const attr = s => String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const state = {
@@ -36,6 +37,12 @@ const state = {
 const curTab = () => state.tabs.find(t => t.id === state.activeTabId) || null;
 const isCurrentEnv = (env, origin) => !!env && env.id === state.activeEnvId && origin === state.origin;
 const consoleSessionManager = new ConsoleSessionManager({ store, onError: reportConsoleSessionError });
+const recoverExpiredSession = createSessionRecovery({
+  getCredential: store.getCred,
+  login: api.login,
+  onRecovered: handleRecoveredSession,
+  onFailure: handleSessionRecoveryFailure,
+});
 const csvActions = createCsvExportActions({ api, getOrigin: () => state.origin, saveText: (name, csv) => saveCsvText(api, name, csv), toast });
 const consoleRename = new ConsoleRenameController({ getEnvId: () => state.activeEnvId, getConsoles: () => state.tabs, persist: persistConsoleSession, renderTabs, hideMenus, openModal, closeModal });
 const autocomplete = new SqlAutocomplete({
@@ -57,6 +64,7 @@ const autocomplete = new SqlAutocomplete({
   onError: (message, error) => console.error('[SQL Studio] ' + message, error),
 });
 /* ================= 初始化 ================= */ async function init() {
+  api.setSessionRecovery(recoverExpiredSession);
   bindStatic();
   bindDelegation();
   try {
@@ -72,6 +80,27 @@ const autocomplete = new SqlAutocomplete({
   await applyEnv(state.activeEnvId);
   if (!state.env) { openEnvMgr(); return; }
   await ensureConnected();
+}
+
+function handleRecoveredSession(session) {
+  const shouldNotify = isCurrentEnv(state.env, session.origin);
+  if (!isCurrentEnv(state.env, session.origin)) return;
+  state.user = session.username;
+  state.connected = true;
+  state.connecting = false;
+  renderEnvUI();
+  const env = state.envs.find(item => item.id === session.envId);
+  if (env && shouldNotify) toast('登录已过期，已使用保存的凭据自动登录 ' + env.name, 'ok');
+}
+function handleSessionRecoveryFailure(session, error) {
+  if (!state.connected || !isCurrentEnv(state.env, session.origin)) return;
+  state.connected = false;
+  state.connecting = false;
+  renderEnvUI();
+  renderTree(error.message);
+  if (!$('loginMask').classList.contains('show')) {
+    openLogin(session.envId, '登录已过期，请重新登录：' + error.message);
+  }
 }
 function bindStatic() {
   consoleRename.bind();
@@ -176,22 +205,22 @@ async function switchEnv(id) {
   await applyEnv(id);
   await ensureConnected();
 }
-/** 确保当前环境已连接：先探测已有会话，再尝试记住的密码，否则弹登录 */
+/** 确保当前环境已连接：先探测会话，再尝试记住的密码，否则弹登录。 */
 async function ensureConnected() {
   if (!state.env) return;
   const env = state.env; const origin = state.origin;
   state.connecting = true; renderEnvUI(); renderTree();
   const cred = await store.getCred(env.id);
   if (cred.user) api.setSession(env.id, cred.user, origin);
-  // 1. 已有会话
+  // 会话过期时 api 层会先自动恢复并重放探测请求。
   try {
     await api.checkSession(origin);
     if (!isCurrentEnv(env, origin)) return;
     state.user = cred.user || '';
     await onConnected();
     return;
-  } catch (e) { if (!isCurrentEnv(env, origin)) return; }
-  // 2. 记住的密码自动登录
+  } catch (error) { if (!isCurrentEnv(env, origin)) return; }
+  // 对网络错误或尚未建立会话的情况，保留原有登录路径。
   if (cred.remember && cred.password) {
     try {
       await api.login(env.id, origin, cred.user, cred.password);
@@ -200,12 +229,13 @@ async function ensureConnected() {
       await onConnected();
       toast('已使用保存的凭据自动登录 ' + env.name, 'ok');
       return;
-    } catch (e) { if (!isCurrentEnv(env, origin)) return; }
+    } catch (error) { if (!isCurrentEnv(env, origin)) return; }
   }
-  // 3. 弹登录
   state.connecting = false;
   renderEnvUI(); renderTree();
-  openLogin();
+  if (!$('loginMask').classList.contains('show')) {
+    openLogin(env.id, '自动登录失败：' + (cred.user ? '请检查用户名和密码' : '请输入登录凭据'));
+  }
 }
 async function onConnected() {
   state.connected = true;
@@ -215,11 +245,11 @@ async function onConnected() {
   await loadInstances();
 }
 /* ================= 登录 ================= */
-function openLogin(envId) {
+function openLogin(envId, errorMessage = '') {
   const target = envId || state.activeEnvId;
   const sel = $('loginEnv');
   sel.innerHTML = state.envs.map(x => `<option value="${attr(x.id)}" ${x.id === target ? 'selected' : ''}>${esc(x.name)}</option>`).join('');
-  $('loginErr').textContent = '';
+  $('loginErr').textContent = errorMessage;
   onLoginEnvChange();
   openModal('loginMask');
   setTimeout(() => $('loginPwd').focus(), 50);

@@ -12,6 +12,9 @@ function invoke(cmd, args) {
 }
 
 const sessions = new Map();
+const recoveryPromises = new Map();
+const SESSION_EXPIRED_PATTERN = /未登录|会话已过期/;
+let sessionRecoveryHandler = null;
 
 function sessionFor(origin) {
     const session = sessions.get(origin);
@@ -19,23 +22,71 @@ function sessionFor(origin) {
     return session;
 }
 
-const get = (origin, path) => invoke('api_get', { session: sessionFor(origin), path });
-const post = (origin, path, form) => invoke('api_post', { session: sessionFor(origin), path, form });
+function setSession(envId, username, origin) {
+    if (!envId || !username || !origin) throw new Error('Archery 会话上下文不完整');
+    sessions.set(origin, Object.freeze({ envId, username, origin }));
+}
+
+async function loginSession(envId, origin, username, password) {
+    setSession(envId, username, origin);
+    return invoke('login', { session: sessionFor(origin), password });
+}
+
+function isSessionExpiredError(error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return SESSION_EXPIRED_PATTERN.test(message);
+}
+
+async function recoverSession(origin) {
+    const pending = recoveryPromises.get(origin);
+    if (pending) return pending;
+    const session = Object.freeze({ ...sessionFor(origin) });
+    if (!sessionRecoveryHandler) {
+        throw new Error('会话已过期，未配置自动登录，请重新登录');
+    }
+    const recovery = Promise.resolve()
+        .then(() => sessionRecoveryHandler(session))
+        .finally(() => recoveryPromises.delete(origin));
+    recoveryPromises.set(origin, recovery);
+    return recovery;
+}
+
+async function requestWithRecovery(origin, request) {
+    try {
+        return await request();
+    } catch (error) {
+        if (!isSessionExpiredError(error)) throw error;
+        await recoverSession(origin);
+        // 恢复后只重放原请求一次；再次失败必须把真实错误交给调用方。
+        return request();
+    }
+}
+
+const get = (origin, path) => requestWithRecovery(
+    origin,
+    () => invoke('api_get', { session: sessionFor(origin), path }),
+);
+const post = (origin, path, form) => requestWithRecovery(
+    origin,
+    () => invoke('api_post', { session: sessionFor(origin), path, form }),
+);
 const resource = (origin, params) =>
     get(origin, '/instance/instance_resource/?' + new URLSearchParams(params));
 
 export const api = {
-    setSession: (envId, username, origin) => {
-        if (!envId || !username || !origin) throw new Error('Archery 会话上下文不完整');
-        sessions.set(origin, Object.freeze({ envId, username, origin }));
+    /** 配置会话过期后的恢复处理器；传 null 可禁用自动恢复。 */
+    setSessionRecovery: handler => {
+        if (handler != null && typeof handler !== 'function') {
+            throw new Error('会话恢复处理器必须是函数或 null');
+        }
+        sessionRecoveryHandler = handler || null;
+        recoveryPromises.clear();
     },
+    setSession,
     /** 当前桌面应用版本 */
     appVersion: () => invoke('app_version'),
     /** 登录，成功 resolve，失败 reject（附带 Archery 返回的 msg） */
-    login: (envId, origin, username, password) => {
-        api.setSession(envId, username, origin);
-        return invoke('login', { session: sessionFor(origin), password });
-    },
+    login: loginSession,
     /** 探测会话是否有效（能否取到实例列表） */
     checkSession: async (origin) => { await api.instances(origin); return { ok: true }; },
     /** 实例（集群）列表 → [{id,type,db_type,instance_name}] */
