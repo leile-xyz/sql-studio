@@ -85,18 +85,28 @@ async function testTreeConsoleContextIsolation() {
   const loader = await readUtf8('src/lib/resource-tree-loader.mjs');
   const events = await readUtf8('src/lib/app-events.mjs');
   const html = await readUtf8('src/index.html');
+  const locate = await readUtf8('src/lib/resource-tree-locate.mjs');
   const toggleStart = source.indexOf('async function toggleNode');
   const toggleEnd = source.indexOf('function renderTree', toggleStart);
   assert.ok(toggleStart >= 0 && toggleEnd > toggleStart, 'resource tree toggle implementation is missing');
   assert.ok(source.includes('createResourceTreeLoader'), 'resource tree loader is missing');
   assert.ok(loader.includes('async function loadDbs'), 'resource tree database loader is missing');
-  assert.ok(source.includes('async function syncTreeToConsole'), 'console-to-tree synchronization is missing');
+  assert.ok(source.includes('createTreeLocator'), 'console-to-tree synchronization is missing');
+  assert.ok(locate.includes('async syncFromConsole(tab)') && locate.includes('async revealSearchNode(uid)'), '树定位模块缺少联动或搜索定位入口');
+  assert.ok(source.includes('const { syncFromConsole: syncTreeToConsole, revealSearchNode: revealTreeNode } = createTreeLocator('), '树定位模块未接入 app.js');
   assert.ok(!source.includes('function syncConsoleToTree'), 'tree browsing must not overwrite console context');
   assert.ok(!source.slice(toggleStart, toggleEnd).includes('syncConsoleToTree'));
-  assert.ok(source.includes('function openTreeNodeInConsole'), 'tree console action is missing');
   assert.ok(events.includes("'tree-open-console'"));
   assert.ok(events.includes("event.target.closest('#tree .tnode[data-uid]')"));
   assert.ok(html.includes('id="treeContextMenu"'));
+  const menu = await readUtf8('src/lib/resource-tree-menu.mjs');
+  assert.ok(events.includes("'tree-reveal'"), '搜索结果定位动作未接入事件分发');
+  assert.ok(menu.includes('data-act="tree-reveal"') && menu.includes('清除搜索并定位'), '定位菜单项缺失');
+  assert.ok(menu.includes('options.searching && isTreeRevealNode(node)'), '定位菜单项必须以搜索状态为条件');
+  assert.ok(source.includes("searching: !!$('treeSearch').value.trim()"), '定位动作必须只在搜索状态下出现');
+  assert.ok(locate.includes("searchInput().value = '';"), '定位前必须清空搜索条件');
+  const css = await readUtf8('src/app.css');
+  assert.ok(css.includes('.tnode.located'), '定位高亮样式缺失');
 }
 
 async function testDesktopBackgroundMode() {
@@ -146,6 +156,12 @@ async function testMcpStructure() {
   assert.ok(mcp.includes('post(sql_request)'), 'SQL 执行接口必须注册到 MCP 服务端口');
   assert.ok(mcp.includes('sql_endpoint'), 'MCP 状态必须暴露 SQL 执行接口地址');
   assert.ok(html.includes('id="mcpSqlEndpoint"') && dialog.includes('mcpSqlEndpoint'), 'MCP 弹窗必须展示 SQL 执行接口');
+  assert.ok(html.includes('id="mcpSqlHelp"') && dialog.includes('mcpSqlHelp'), 'SQL 执行接口旁必须有接口文档入口');
+  assert.ok(html.includes('id="sqlApiMask"') && dialog.includes('sqlApiMask'), '接口文档弹窗必须存在且可关闭');
+  assert.ok(dialog.includes('renderApiDoc'), '接口文档里的地址与 curl 示例必须用当前 Token 填充');
+  for (const keyword of ['Authorization: Bearer', 'schemaName', 'rowLimit', 'truncated']) {
+    assert.ok(html.includes(keyword), 'SQL 接口文档缺少 ' + keyword);
+  }
   const session = await readUtf8('src-tauri/src/session.rs');
   assert.ok(session.includes('pub(crate) async fn ensure_session'), '跨环境会话解析必须集中在 session 模块');
   assert.ok(!tools.includes('async fn ensure_session'), 'MCP 工具不应再自带一份会话解析');

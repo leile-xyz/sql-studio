@@ -51,7 +51,10 @@
           <div class="mcp-value-row"><code id="mcpToken">—</code><button class="tbtn mcp-action" id="mcpResetToken" type="button">重置</button></div>
         </div>
         <div class="mcp-field">
-          <label for="mcpSqlEndpoint">SQL 执行接口（POST，请求体为 JSON）</label>
+          <div class="mcp-field-head">
+            <label for="mcpSqlEndpoint">SQL 执行接口（POST，请求体为 JSON）</label>
+            <button class="mcp-help" id="mcpSqlHelp" type="button" title="查看接口文档" aria-label="查看 SQL 执行接口文档">?</button>
+          </div>
           <div class="mcp-value-row"><code id="mcpSqlEndpoint">—</code><button class="tbtn mcp-copy" type="button" data-copy-target="mcpSqlEndpoint">复制</button></div>
         </div>
       </section>
@@ -66,6 +69,91 @@
       <div class="mcp-error" id="mcpError" hidden></div>
     </div>
     <div class="btnrow mcp-actions"><button class="tbtn" id="mcpClose">关闭</button></div>
+  </div>
+</div>
+
+<!-- SQL 执行接口文档（从 MCP 弹窗的 ? 打开） -->
+<div class="mask" id="sqlApiMask">
+  <div class="modal mcp-modal" role="dialog" aria-modal="true" aria-labelledby="sqlApiTitle">
+    <header class="mcp-head">
+      <div class="mcp-head-icon" aria-hidden="true">?</div>
+      <div><h3 id="sqlApiTitle">SQL 执行接口</h3><p>本机 HTTP 接口，供脚本与其他系统调用</p></div>
+      <span class="mcp-local-tag">仅限本机</span>
+    </header>
+    <div class="mcp-body">
+      <section class="mcp-section">
+        <div class="mcp-section-title"><div><strong>端点与鉴权</strong><span>POST，请求体与响应体都是 JSON</span></div><button class="tbtn mcp-copy" type="button" data-copy-target="sqlApiCurl">复制 curl</button></div>
+        <div class="mcp-field">
+          <label for="sqlApiEndpoint">接口地址</label>
+          <div class="mcp-value-row"><code id="sqlApiEndpoint">—</code><button class="tbtn mcp-copy" type="button" data-copy-target="sqlApiEndpoint">复制</button></div>
+        </div>
+        <div class="mcp-field">
+          <label for="sqlApiCurl">curl 示例</label>
+          <pre class="mcp-config" id="sqlApiCurl">—</pre>
+        </div>
+        <p class="api-note">Token 也可以放在 <code>Authorization: Bearer &lt;token&gt;</code> 请求头里；接口只监听 <code>127.0.0.1</code>，不对外网开放。</p>
+      </section>
+
+      <section class="mcp-section">
+        <div class="mcp-section-title"><div><strong>请求参数</strong><span>与 MCP 工具 execute_sql 完全一致</span></div></div>
+        <div class="api-table">
+          <div class="api-row"><code>envId</code><span>必填，环境标识，决定用哪个环境的会话（与界面当前环境无关）</span></div>
+          <div class="api-row"><code>instanceName</code><span>必填，Archery 实例名</span></div>
+          <div class="api-row"><code>databaseName</code><span>必填，数据库名</span></div>
+          <div class="api-row"><code>schemaName</code><span>可选，PostgreSQL 需要；MySQL 省略或传空串</span></div>
+          <div class="api-row"><code>sql</code><span>必填，单条 SQL，空字符串会被拒绝</span></div>
+          <div class="api-row"><code>limit</code><span>可选，返回行数上限，默认 100、最大 1000</span></div>
+        </div>
+      </section>
+
+      <section class="mcp-section">
+        <div class="mcp-section-title"><div><strong>响应</strong><span>成功看 result，失败看 error</span></div></div>
+        <pre class="mcp-config" id="sqlApiSample">{
+  "ok": true,
+  "result": {
+    "columns": ["id", "name"],
+    "columnTypes": ["LONGLONG", "VAR_STRING"],
+    "rows": [[1, "张三"]],
+    "elapsedSeconds": 0.012,
+    "affectedRows": 0,
+    "fullSql": "select id, name from t_user",
+    "isMasked": false,
+    "rowCount": 1,
+    "rowLimit": 100,
+    "truncated": false
+  }
+}</pre>
+        <div class="api-table">
+          <div class="api-row"><code>200</code><span>执行成功：{"ok":true,"result":{…}}</span></div>
+          <div class="api-row"><code>200</code><span>执行失败：{"ok":false,"error":"中文原因"}。参数、凭据、SQL、网络原因都走这里，与 MCP 侧一致：请求被正常处理，业务结果看 ok</span></div>
+          <div class="api-row"><code>400</code><span>请求体不是 JSON 对象</span></div>
+          <div class="api-row"><code>401</code><span>Token 缺失或错误</span></div>
+        </div>
+      </section>
+
+      <section class="mcp-section">
+        <div class="mcp-section-title"><div><strong>行为说明</strong><span>调用前值得知道的边界</span></div></div>
+        <div class="api-table">
+          <div class="api-row"><code>单条语句</code><span>一次一条：Archery 一次只处理一条 SQL，多条请调用方自行拆分</span></div>
+          <div class="api-row"><code>limit</code><span>默认 100、上限 1000，超出会被夹紧；rowCount 触到 rowLimit 时 truncated 为 true，表示可能还有更多数据</span></div>
+          <div class="api-row"><code>跨环境</code><span>envId 决定会话，界面停在别的环境也能查询：优先复用已登录会话，其次用该环境已保存的凭据登录（需勾选过「记住密码」）</span></div>
+          <div class="api-row"><code>凭据</code><span>不接受账号密码参数；密码只从 Windows 凭据管理器读取，不落盘、不写日志</span></div>
+          <div class="api-row"><code>写操作</code><span>不拦截 UPDATE / DELETE / DDL，语句原样交给 Archery，由服务端的实例权限、审核与脱敏兜底</span></div>
+          <div class="api-row"><code>留痕</code><span>不单独落库；result.fullSql 是 Archery 侧实际执行的 SQL，需要审计可自行记录</span></div>
+        </div>
+      </section>
+
+      <section class="mcp-section">
+        <div class="mcp-section-title"><div><strong>常见错误</strong><span>error 字段的中文原因与处理</span></div></div>
+        <div class="api-table">
+          <div class="api-row"><code>MCP token 无效</code><span>Token 不匹配或已重置，复制弹窗里的最新 Token</span></div>
+          <div class="api-row"><code>环境不存在：xxx</code><span>envId 写错或环境已删除，可先调 list_environments 拿准确 id</span></div>
+          <div class="api-row"><code>该环境尚未保存登录用户名</code><span>该环境从未在界面登录过，先在环境管理里登录一次</span></div>
+          <div class="api-row"><code>该环境当前未登录且未保存密码…</code><span>登录过但没勾「记住密码」，重新登录并勾选</span></div>
+        </div>
+      </section>
+    </div>
+    <div class="btnrow mcp-actions"><button class="tbtn" id="sqlApiClose">关闭</button></div>
   </div>
 </div>
 

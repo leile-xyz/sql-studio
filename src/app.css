@@ -468,6 +468,12 @@ button { font-family: inherit; }
 .tnode { display: flex; align-items: center; height: 24px; border-radius: 4px; cursor: pointer; white-space: nowrap; padding-right: 8px; gap: 5px; user-select: none; }
 .tnode:hover { background: var(--row-hover); }
 .tnode.selected { background: var(--sel); }
+/* 搜索定位后的短暂高亮，时长与 app.js 的 LOCATE_FLASH_MS 一致 */
+.tnode.located { animation: tree-locate 1.8s ease-out; }
+@keyframes tree-locate {
+  0%, 45% { background: var(--sel); box-shadow: inset 2px 0 0 var(--accent); }
+  100% { background: transparent; box-shadow: inset 2px 0 0 transparent; }
+}
 .twist { width: 14px; flex: none; text-align: center; color: var(--text-faint); font-size: 9px; transition: transform .1s; }
 .twist.open { transform: rotate(90deg); }
 .twist.leaf { visibility: hidden; }
@@ -672,10 +678,21 @@ table.meta { border-collapse: collapse; font-size: 12.5px; min-width: 720px; }
 .mcp-tools { display: flex; flex-wrap: wrap; gap: 8px; color: var(--text-faint); font-size: 11.5px; }
 .mcp-tool { display: flex; align-items: center; gap: 9px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 7px; background: var(--panel-3); }
 .mcp-tool code { color: var(--accent-text); font: 11.5px var(--mono); }
+/* SQL 执行接口文档弹窗：字段行的「?」与参数/行为对照表 */
+.mcp-field-head { display: flex; align-items: center; gap: 6px; margin-bottom: 5px; }
+.mcp-field-head label { margin-bottom: 0; }
+.mcp-help { flex: none; display: inline-flex; width: 17px; height: 17px; align-items: center; justify-content: center; padding: 0; color: var(--text-faint); border: 1px solid var(--border-light); border-radius: 50%; background: var(--panel-3); font-size: 11px; line-height: 1; cursor: pointer; }
+.mcp-help:hover { color: var(--accent-text); border-color: var(--accent); }
+.api-table { display: flex; flex-direction: column; }
+.api-row { display: grid; grid-template-columns: 156px minmax(0, 1fr); gap: 10px; padding: 6px 0; border-bottom: 1px dashed var(--border); color: var(--text-dim); font-size: 11.5px; line-height: 1.65; }
+.api-row:last-child { border-bottom: none; }
+.api-row code { color: var(--accent-text); font: 11.5px/1.65 var(--mono); word-break: break-all; }
+.api-note { margin-top: 9px; color: var(--text-faint); font-size: 11.5px; line-height: 1.65; }
+.api-note code { color: var(--accent-text); font: 11.5px var(--mono); }
 .mcp-tool span { color: var(--text-faint); }
 .mcp-error { padding: 10px 12px; color: #f0aaaa; border: 1px solid rgba(219,92,92,.32); border-radius: 8px; background: rgba(219,92,92,.08); font-size: 11.5px; word-break: break-word; }
 .mcp-actions { margin: 14px 0 0 !important; padding: 14px 20px 18px; border-top: 1px solid var(--border); background: rgba(0,0,0,.08); }
-@media (max-width: 560px) { .mcp-head p, .mcp-section-title span, .mcp-tool span { display: none; } .mcp-body { padding-inline: 14px; } }
+@media (max-width: 560px) { .mcp-head p, .mcp-section-title span, .mcp-tool span { display: none; } .mcp-body { padding-inline: 14px; } .api-row { grid-template-columns: minmax(0, 1fr); gap: 2px; } }
 .field-row { display: flex; gap: 10px; }
 .field-row > div { flex: 1; }
 .about-modal { width: 440px; max-width: calc(100vw - 48px); padding: 0; overflow: hidden; }

@@ -19,6 +19,10 @@ const SELECTED_SQL = 'SELECT * FROM t_user;';
 // 验证「某条失败时继续其余条」：第 1 条成功、第 2 条失败、第 3 条成功
 const MIXED_SQL = 'SELECT 1;\nSELECT FAIL;\nSELECT * FROM t_user;';
 const STORE_PATH = path.join(APPDATA_DIR, 'store.json');
+const APP_VERSION = require('../package.json').version;
+// 控制台会给可安全分页的 SELECT 追加分页后缀，状态栏回显的是真实执行的 SQL
+const PAGE_SUFFIX = /\s+(?:LIMIT \d+ OFFSET \d+|OFFSET \d+)$/;
+const baseSql = sql => sql.replace(PAGE_SUFFIX, '').trim();
 
 const results = [];
 function check(name, ok, detail) {
@@ -134,11 +138,6 @@ async function main() {
     const page = browser.contexts()[0].pages()[0];
     await page.waitForSelector('#topbar', { timeout: 10000 });
     check('应用启动，主界面渲染', true);
-    await page.click('#btnSidebarCollapse');
-    check('数据库侧边栏可收起', await page.locator('#main').evaluate(element => element.classList.contains('sidebar-collapsed')));
-    await page.click('#btnSidebarExpand');
-    check('数据库侧边栏可重新展开', await page.locator('#sidebar').isVisible());
-
     // 登录弹窗自动弹出（无会话、无记住密码）
     await page.waitForSelector('#loginMask.show', { timeout: 10000 });
     check('无会话时自动弹出登录框', true);
@@ -160,11 +159,17 @@ async function main() {
     await page.waitForFunction(() => document.getElementById('connText').textContent.includes('已连接'), null, { timeout: 8000 });
     check('登录成功（CSRF/Cookie 链路通）', true);
 
+    // 登录遮罩已关闭，此时再验证侧边栏收起/展开
+    await page.click('#btnSidebarCollapse');
+    check('数据库侧边栏可收起', await page.locator('#main').evaluate(element => element.classList.contains('sidebar-collapsed')));
+    await page.click('#btnSidebarExpand');
+    check('数据库侧边栏可重新展开', await page.locator('#sidebar').isVisible());
+
     await page.click('#btnAbout');
     await page.waitForSelector('#aboutMask.show', { timeout: 8000 });
-    await page.waitForFunction(() => document.getElementById('aboutVersion').textContent === 'v1.0.0', null, { timeout: 8000 });
+    await page.waitForFunction(expected => document.getElementById('aboutVersion').textContent === 'v' + expected, APP_VERSION, { timeout: 8000 });
     const about = await page.textContent('#aboutMask');
-    check('关于弹窗内容', about.includes('SQL Studio') && about.includes('v1.0.0')
+    check('关于弹窗内容', about.includes('SQL Studio') && about.includes('v' + APP_VERSION)
       && about.includes('Windows 桌面端') && about.includes('MIT License')
       && !about.includes('项目定位') && !about.includes('隐私') && !about.includes('GitHub 仓库'), about);
     await page.click('#aboutClose');
@@ -172,7 +177,9 @@ async function main() {
     check('关于弹窗关闭', !(await page.locator('#aboutMask').evaluate(element => element.classList.contains('show'))));
 
     // 环境管理弹窗布局
-    await page.click('#btnEnvMgr');
+    await page.click('#envBtn');
+    await page.waitForSelector('#envMenu.show', { timeout: 8000 });
+    await page.click('#envMenu [data-act="open-envmgr"]');
     await page.waitForSelector('.env-manager-modal .env-row-actions', { timeout: 8000 });
     const envModal = await page.locator('.env-manager-modal').evaluate(element => ({
       width: element.getBoundingClientRect().width,
@@ -190,6 +197,29 @@ async function main() {
     await page.click('#tree .tnode:has-text("demo_db")');
     await page.waitForSelector('#tree .tnode[data-table]', { timeout: 8000 });
     check('表列表懒加载', true);
+
+    // 搜索 → 右键结果 → 清除搜索并在树中定位
+    await page.fill('#treeSearch', 't_user');
+    await page.waitForSelector('#tree .tnode[data-act="open-table"]', { timeout: 8000 });
+    check('搜索结果命中数据表', (await page.textContent('#tree')).includes('t_user'));
+    await page.click('#tree .tnode[data-act="open-table"]', { button: 'right' });
+    await page.waitForSelector('#treeContextMenu.show [data-act="tree-reveal"]', { timeout: 8000 });
+    const searchMenu = await page.textContent('#treeContextMenu');
+    check('搜索结果右键菜单含定位项', searchMenu.includes('清除搜索并定位'), searchMenu.replace(/\s+/g, ' ').trim());
+    await page.click('#treeContextMenu [data-act="tree-reveal"]');
+    await page.waitForFunction(() => document.getElementById('treeSearch').value === ''
+      && document.querySelector('#tree .tnode.located')?.textContent.includes('t_user'), null, { timeout: 8000 });
+    const located = await page.locator('#tree .tnode.located').first().textContent();
+    check('定位后清空搜索并高亮目标表', located.includes('t_user'), located.trim());
+
+    // 非搜索状态下的库节点：菜单不应出现定位项，且保留控制台打开项
+    await page.click('#tree .tnode:has-text("demo_db")', { button: 'right' });
+    await page.waitForSelector('#treeContextMenu.show [data-act="tree-open-console"]', { timeout: 8000 });
+    const dbMenu = await page.textContent('#treeContextMenu');
+    check('普通树右键保留控制台打开项且无定位项',
+      dbMenu.includes('在当前控制台打开') && !dbMenu.includes('清除搜索并定位'),
+      dbMenu.replace(/\s+/g, ' ').trim());
+    await page.keyboard.press('Escape');
 
     // 打开表 → 数据网格
     await page.click('#tree .tnode[data-table] > span:nth-child(3)');
@@ -215,6 +245,9 @@ async function main() {
     // 控制台：多 SQL 编辑，选中时只执行选中内容
     await openNewConsole(page);
     await page.waitForSelector('#edTa', { timeout: 8000 });
+    check('新建控制台后树同步高亮上下文',
+      await page.locator('#tree .tnode.selected').count() > 0,
+      await page.locator('#tree .tnode.selected').first().textContent());
     await page.fill('#edTa', MULTI_SQL);
     await page.click('[data-act="toggle-console-menu"]');
     await page.click('#consoleMenu [data-act="rename-console"]');
@@ -243,7 +276,9 @@ async function main() {
     const con = await page.textContent('#conResults');
     check('控制台选中 SQL 执行', con.includes('张三') && con.includes('已执行选中内容'), '');
     const selectedStatusSql = (await page.textContent('#sbSql')).trim();
-    check('状态栏回显实际执行的选中 SQL', selectedStatusSql === SELECTED_SQL.replace(/;$/, ''), selectedStatusSql);
+    check('状态栏回显实际执行的分页 SQL',
+      baseSql(selectedStatusSql) === SELECTED_SQL.replace(/;$/, '') && PAGE_SUFFIX.test(selectedStatusSql),
+      selectedStatusSql);
 
     // 新建第二个控制台后，通过“所有”菜单切回第一个，确认各控制台 SQL 独立保留
     await sleep(500);
@@ -271,12 +306,14 @@ async function main() {
     const tabCount = await page.locator('#conResults .res-tabs .res-tab').count();
     check('多条 SQL 拆分后生成多个结果 tab', tabCount === 2, 'tab 数=' + tabCount);
     // 执行完默认激活最后一个 tab（结果 2 = t_user）
-    check('默认激活最后一条结果', (await page.textContent('#sbSql')).trim() === 'SELECT * FROM t_user');
+    const lastStatus = (await page.textContent('#sbSql')).trim();
+    check('默认激活最后一条结果', baseSql(lastStatus) === 'SELECT * FROM t_user' && PAGE_SUFFIX.test(lastStatus), lastStatus);
     // 切换到结果 1（SELECT 1）→ 仅返回单值 1
     await page.click('#conResults .res-tabs .res-tab:nth-child(1)');
     await page.waitForFunction(() => document.querySelector('#conResults table.grid') && document.querySelector('#conResults table.grid').textContent.includes('1'), null, { timeout: 8000 });
     const res1 = await page.textContent('#conResults');
-    check('切换结果 1 显示 SELECT 1 的数据', res1.includes('1') && (await page.textContent('#sbSql')).trim() === 'SELECT 1', '');
+    const res1Status = (await page.textContent('#sbSql')).trim();
+    check('切换结果 1 显示 SELECT 1 的数据', res1.includes('1') && baseSql(res1Status) === 'SELECT 1', res1Status);
     // 切换回结果 2 → t_user 数据
     await page.click('#conResults .res-tabs .res-tab:nth-child(2)');
     await page.waitForFunction(() => document.querySelector('#conResults table.grid') && document.querySelector('#conResults table.grid').textContent.includes('张三'), null, { timeout: 8000 });

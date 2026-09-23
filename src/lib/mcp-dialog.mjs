@@ -1,6 +1,9 @@
+let lastStatus = null;
+
 export function bindMcpDialog(options) {
   const byId = id => document.getElementById(id);
   const mask = byId('mcpMask');
+  const apiMask = byId('sqlApiMask');
   byId('btnMcp').addEventListener('click', async () => {
     mask.classList.add('show');
     try {
@@ -11,10 +14,27 @@ export function bindMcpDialog(options) {
   });
   byId('mcpClose').addEventListener('click', () => mask.classList.remove('show'));
   byId('mcpResetToken').addEventListener('click', () => resetToken(byId, options));
-  mask.addEventListener('click', event => {
-    const button = event.target.closest('[data-copy-target]');
-    if (button) copyValue(byId(button.dataset.copyTarget), options.toast);
+  byId('mcpSqlHelp').addEventListener('click', () => {
+    renderApiDoc(byId, lastStatus);
+    apiMask.classList.add('show');
   });
+  byId('sqlApiClose').addEventListener('click', () => apiMask.classList.remove('show'));
+  for (const target of [mask, apiMask]) {
+    target.addEventListener('click', event => {
+      const button = event.target.closest('[data-copy-target]');
+      if (button) copyValue(byId(button.dataset.copyTarget), options.toast);
+    });
+  }
+}
+
+/** 接口文档弹窗里的地址与示例用当前 Token 填充，复制出来即可直接用。 */
+function renderApiDoc(byId, status) {
+  const url = status ? withToken(status.sqlEndpoint, status.token) : '';
+  byId('sqlApiEndpoint').textContent = url || '—';
+  byId('sqlApiCurl').textContent = url
+    ? `curl.exe -X POST "${url}" -H "Content-Type: application/json" `
+      + '-d \'{"envId":"pre","instanceName":"mysql-pre","databaseName":"app","schemaName":"","sql":"select 1","limit":10}\''
+    : '—';
 }
 
 async function resetToken(byId, options) {
@@ -33,6 +53,7 @@ async function resetToken(byId, options) {
 }
 
 function renderStatus(byId, status) {
+  lastStatus = status;
   const state = byId('mcpState');
   const stateName = status.running ? 'running' : (status.enabled ? 'failed' : 'disabled');
   const stateText = status.running ? '运行中' : (status.enabled ? '启动失败' : '已停用');

@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { renderResourceTree } from '../src/lib/resource-tree-view.mjs';
 import { createResourceTreeLoader } from '../src/lib/resource-tree-loader.mjs';
 import { createResourceTreeSearch } from '../src/lib/resource-tree-search.mjs';
-import { renderTreeContextMenuView, resolveTreeConsoleChange } from '../src/lib/resource-tree-menu.mjs';
+import { renderTreeContextMenuView, resolveTreeConsoleChange, resolveTreeRevealPath } from '../src/lib/resource-tree-menu.mjs';
+import { expandTreePath, expandTreeSelection } from '../src/lib/resource-tree-locate.mjs';
 
 function deferred() {
   let resolve;
@@ -205,5 +206,64 @@ const schemaChange = resolveTreeConsoleChange(consoleTab, { kind: 'schema', name
 assert.deepEqual(schemaChange.context, { instance: 'warehouse', db: 'sales_db', schema: 'audit', dbType: 'pgsql' });
 assert.match(renderTreeContextMenuView(database), /data-act="tree-open-console"/);
 assert.match(renderTreeContextMenuView(database), /在当前控制台打开/);
+
+/* 搜索结果右键：定位动作只在搜索状态下出现，且不挤掉原有的控制台动作 */
+const revealInstance = { uid: 'inst-1', kind: 'instance', name: 'warehouse', expanded: false, dbs: [database] };
+assert.equal(renderTreeContextMenuView(database).includes('tree-reveal'), false);
+assert.equal(renderTreeContextMenuView(table).includes('tree-reveal'), false);
+const searchingDatabase = renderTreeContextMenuView(database, { searching: true });
+assert.match(searchingDatabase, /data-act="tree-open-console"/);
+assert.match(searchingDatabase, /data-act="tree-reveal"/);
+assert.match(searchingDatabase, /清除搜索并定位/);
+const searchingTable = renderTreeContextMenuView(table, { searching: true });
+assert.match(searchingTable, /data-act="tree-reveal"/);
+assert.equal(searchingTable.includes('tree-open-console'), false, '表节点保持没有控制台动作');
+assert.equal(renderTreeContextMenuView({ uid: 'col-1', kind: 'column', name: 'id' }, { searching: true }), '');
+
+// 真实树里的表节点带有 inst（由 loadTables 写入），定位归属依赖它
+const revealTable = { uid: 'table-1', kind: 'table', name: 'orders', inst: 'warehouse', db: 'sales_db', schema: '' };
+const revealPath = resolveTreeRevealPath([revealInstance], revealTable);
+assert.equal(revealPath.instance, revealInstance);
+assert.equal(revealPath.dbName, 'sales_db');
+assert.equal(revealPath.schemaName, '');
+const schemaTable = { uid: 'table-2', kind: 'table', name: 'audit_log', inst: 'warehouse', db: 'sales_db', schema: 'audit' };
+const schemaPath = resolveTreeRevealPath([revealInstance], schemaTable);
+assert.equal(schemaPath.dbName, 'sales_db');
+assert.equal(schemaPath.schemaName, 'audit');
+assert.equal(resolveTreeRevealPath([revealInstance], { kind: 'db', name: 'archive', inst: 'other' }), null);
+assert.equal(resolveTreeRevealPath([revealInstance], { kind: 'column', name: 'id' }), null);
+
+/* 定位展开：表节点必须落在表本身，且用刚加载容器里的活节点（搜索命中的旧对象可能已被替换） */
+const locateInstance = { uid: 'loc-inst', kind: 'instance', name: 'warehouse', expanded: false, dbs: null };
+const locateDatabase = { uid: 'loc-db', kind: 'db', name: 'sales_db', inst: 'warehouse', dbType: 'mysql', expanded: false, tables: null };
+const locateTable = { uid: 'loc-table', kind: 'table', name: 'orders', inst: 'warehouse', db: 'sales_db', schema: '' };
+const loaders = {
+  loadDbs: async node => { node.dbs = [locateDatabase]; },
+  loadSchemas: async () => { throw new Error('mysql 不应请求 schema'); },
+  loadTables: async node => { node.tables = [locateTable]; },
+  isPostgres: () => false,
+};
+const locatedTable = await expandTreePath({
+  tree: [locateInstance], node: { ...locateTable, uid: 'stale-table' }, ...loaders,
+});
+assert.equal(locatedTable.target, locateTable, '定位目标必须是表本身，而不是所属数据库');
+assert.deepEqual(locatedTable.selection, { inst: 'warehouse', db: 'sales_db', schema: '' });
+assert.equal(locateInstance.expanded, true);
+assert.equal(locateDatabase.expanded, true);
+
+const locatedDatabase = await expandTreePath({
+  tree: [locateInstance], node: locateDatabase, ...loaders,
+});
+assert.equal(locatedDatabase.target, locateDatabase);
+
+assert.equal(await expandTreePath({ tree: [locateInstance], node: { kind: 'db', name: 'other', inst: 'missing' }, ...loaders }), null);
+
+const syncTarget = await expandTreeSelection({
+  tree: [locateInstance], instanceName: 'warehouse', dbName: 'sales_db', schemaName: '', ...loaders,
+});
+assert.equal(syncTarget.target, locateDatabase, '控制台联动定位到数据库节点');
+assert.equal(await expandTreeSelection({
+  tree: [locateInstance], instanceName: 'nope', dbName: '', schemaName: '', ...loaders,
+}), null);
 
 console.log('PASS resource tree: search batches rendering and cancels stale fan-out');

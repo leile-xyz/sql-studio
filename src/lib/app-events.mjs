@@ -20,6 +20,7 @@ function createClickHandlers(options) {
     folder: ({ element }) => options.toggleFolder(element.dataset.uid, element.dataset.fold),
     'open-table': ({ element }) => options.openTableNode(element.dataset.uid),
     'tree-open-console': ({ element }) => options.openTreeNodeInConsole(element.dataset.uid),
+    'tree-reveal': ({ element }) => options.revealTreeNode(element.dataset.uid),
     tab: ({ element }) => options.activateTab(+element.dataset.id),
     'close-tab': ({ element, event }) => { event.stopPropagation(); options.closeTab(+element.dataset.id); },
     'close-tabs': ({ element }) => options.closeTabs({ id: +element.dataset.id, mode: element.dataset.mode }),

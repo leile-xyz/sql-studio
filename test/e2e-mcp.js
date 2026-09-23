@@ -159,6 +159,21 @@ async function main() {
   check('MCP 弹窗展示 SQL 接口与 40 位 token',
     sqlEndpoint.startsWith(`http://127.0.0.1:${MCP_PORT}/sql?token=`) && token.length === 40,
     sqlEndpoint.replace(/token=.*/, 'token=***'));
+
+  // 「?」打开的接口文档：地址与 curl 示例必须带当前 Token
+  await page.click('#mcpSqlHelp');
+  await page.waitForSelector('#sqlApiMask.show', { timeout: 8000 });
+  const docEndpoint = (await page.textContent('#sqlApiEndpoint')).trim();
+  const docCurl = (await page.textContent('#sqlApiCurl')).trim();
+  const docText = await page.textContent('#sqlApiMask');
+  check('接口文档弹窗带当前 Token 的地址与 curl 示例',
+    docEndpoint === sqlEndpoint && docCurl.startsWith('curl.exe -X POST "') && docCurl.includes(`"${sqlEndpoint}"`),
+    docCurl.slice(0, 96) + '…');
+  check('接口文档含参数、状态码与错误说明',
+    ['schemaName', 'limit', '401', 'truncated', '环境不存在'].every(keyword => docText.includes(keyword)));
+  await page.click('#sqlApiClose');
+  await page.waitForFunction(() => !document.getElementById('sqlApiMask').classList.contains('show'), null, { timeout: 8000 });
+  check('接口文档弹窗可关闭且 MCP 弹窗仍在', await page.locator('#mcpMask.show').isVisible());
   await page.click('#mcpClose');
 
   // 核心场景：界面在线上，预发无会话，靠已保存凭据免登录查询

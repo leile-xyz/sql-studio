@@ -7,7 +7,7 @@ SQL Studio 启动后会在本机 `127.0.0.1:37625` 提供一个 HTTP 服务：
 - `POST /mcp`：MCP（Model Context Protocol）streamable-http 端点，供支持 MCP 的客户端调用；
 - `POST /sql`：面向脚本 / 其他系统的 SQL 执行接口，请求体与 MCP 的 `execute_sql` 工具参数一致。
 
-两者共用同一个 40 位 Access Token（保存在 Windows 凭据管理器，service `sql-studio-mcp`），并共用同一套「按环境定位会话」的逻辑，因此都可以操作与界面当前环境不同的环境。MCP 弹窗（顶栏 M 按钮）会直接展示两个端点、Token、客户端 JSON 配置与工具清单。
+两者共用同一个 40 位 Access Token（保存在 Windows 凭据管理器，service `sql-studio-mcp`），并共用同一套「按环境定位会话」的逻辑，因此都可以操作与界面当前环境不同的环境。MCP 弹窗（顶栏 M 按钮）会直接展示两个端点、Token、客户端 JSON 配置与工具清单；「SQL 执行接口」旁的 `?` 按钮会打开内置的接口文档弹窗（端点、参数、响应、状态码、行为边界、常见错误，其中的地址与 curl 示例会带上当前 Token，可直接复制）。
 
 ## 接入方式
 

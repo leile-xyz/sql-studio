@@ -15,6 +15,7 @@ import { renderResourceTree } from './lib/resource-tree-view.mjs';
 import { createResourceTreeLoader } from './lib/resource-tree-loader.mjs';
 import { createResourceTreeSearch } from './lib/resource-tree-search.mjs';
 import { resolveTreeConsoleChange, showTreeContextMenu } from './lib/resource-tree-menu.mjs';
+import { createTreeLocator } from './lib/resource-tree-locate.mjs';
 import { renderTableView, resolveTableSubview } from './lib/table-view.mjs';
 import { buildBrowseSql, buildCountSql, findDbType, isPostgresType, parseCountTotal } from './lib/db-context.mjs';
 import { renderTabBarView, showAllConsolesMenu, showConsoleMenu, showTabContextMenu } from './lib/console-menu-view.mjs';
@@ -32,6 +33,7 @@ const state = {
   tabs: [], activeTabId: null, activeConsoleKey: null, tabSeq: 0, consoleSeq: 0,
   uidSeq: 0, nodeMap: new Map(),
   treeSel: null, // 与控制台联动的高亮 {inst, db, schema}
+  locatedUid: '', // 搜索定位后需要短暂高亮的节点 uid
   lastCtx: null, // 最近浏览的上下文 {inst, db, schema}，新建控制台时继承
 }; let workflowManager; const $ = id => document.getElementById(id);
 const curTab = () => state.tabs.find(t => t.id === state.activeTabId) || null;
@@ -466,6 +468,17 @@ function renderTree(errMsg) {
     nodeMap: state.nodeMap,
     selection: state.treeSel,
   });
+  applyLocatedMarker();
+}
+/** 把定位高亮补到当前 DOM 上；节点被重渲染替换后仍能恢复，直到定位计时结束。 */
+function applyLocatedMarker() {
+  const box = $('tree');
+  if (!state.locatedUid) {
+    box.querySelectorAll('.tnode.located').forEach(element => element.classList.remove('located'));
+    return;
+  }
+  const element = box.querySelector(`[data-uid="${state.locatedUid}"]`);
+  if (element) element.classList.add('located');
 }
 const treeLoader = createResourceTreeLoader({
   api,
@@ -487,39 +500,23 @@ function toggleFolder(uid, fold) {
   const tb = state.nodeMap.get(uid);
   if (tb && tb.open) { tb.open[fold] = !tb.open[fold]; renderTree(); }
 }
-/* ---- 控制台 → 树联动 ---- */
-/** 控制台选择实例/数据库/模式后，展开并高亮左侧树对应节点 */
-async function syncTreeToConsole(tab) {
-  if (!tab || tab.type !== 'console' || !tab.instance || curTab() !== tab) return;
-  const inst = state.tree.find(n => n.name === tab.instance);
-  if (!inst) return;
-  if (!inst.expanded) {
-    inst.expanded = true;
-    if (inst.dbs == null && !inst.loading) await loadDbs(inst);
-  }
-  let dbNode = null;
-  if (tab.db && inst.dbs) {
-    dbNode = inst.dbs.find(d => d.name === tab.db) || null;
-    if (dbNode) {
-      dbNode.expanded = true;
-      if (isPostgresType(dbNode.dbType) && dbNode.schemas == null && !dbNode.loading) await loadSchemas(dbNode);
-      if (!isPostgresType(dbNode.dbType) && dbNode.tables == null && !dbNode.loading) await loadTables(dbNode);
-    }
-  }
-  let schemaNode = null;
-  if (tab.schema && dbNode && dbNode.schemas) {
-    schemaNode = dbNode.schemas.find(schema => schema.name === tab.schema) || null;
-    if (schemaNode) {
-      schemaNode.expanded = true;
-      if (schemaNode.tables == null && !schemaNode.loading) await loadTables(schemaNode);
-    }
-  }
-  state.treeSel = { inst: tab.instance, db: tab.db || '', schema: tab.schema || '' };
-  renderTree();
-  const target = schemaNode || dbNode || inst;
-  const el = $('tree').querySelector(`[data-uid="${target.uid}"]`);
-  if (el) el.scrollIntoView({ block: 'nearest' });
-}
+/* ---- 控制台 → 树联动 / 搜索结果定位 ---- */
+const { syncFromConsole: syncTreeToConsole, revealSearchNode: revealTreeNode } = createTreeLocator({
+  getTree: () => state.tree,
+  getNode: uid => state.nodeMap.get(uid),
+  getCurrentTab: curTab,
+  loadDbs,
+  loadSchemas,
+  loadTables,
+  isPostgres: isPostgresType,
+  searchInput: () => $('treeSearch'),
+  treeSearch: () => treeSearch.search(),
+  renderTree,
+  treeContainer: () => $('tree'),
+  setSelection: selection => { state.treeSel = selection; },
+  markLocated: uid => { state.locatedUid = uid; applyLocatedMarker(); },
+  hideMenus,
+});
 function openTreeNodeInConsole(uid) {
   hideMenus();
   const tab = curTab();
@@ -930,8 +927,9 @@ function bindDelegation() {
     closeTab: id => closeTabs({ id, mode: 'self' }),
     closeTabs,
     openTabContextMenu: options => showTabContextMenu({ tabs: state.tabs, hideMenus, ...options }),
-    openTreeContextMenu: options => showTreeContextMenu({ node: state.nodeMap.get(options.uid), hideMenus, ...options }),
+    openTreeContextMenu: options => showTreeContextMenu({ node: state.nodeMap.get(options.uid), hideMenus, searching: !!$('treeSearch').value.trim(), ...options }),
     openTreeNodeInConsole,
+    revealTreeNode,
     newConsole,
     openDefaultConsole,
     openRenameConsole: id => consoleRename.open(id),

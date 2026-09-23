@@ -134,9 +134,12 @@ function countQueryData(sql, total) {
   };
 }
 
+// 控制台会给可安全分页的 SELECT 追加 LIMIT/OFFSET，比对哨兵 SQL 前先去掉这段后缀
+const CONSOLE_PAGINATION_SUFFIX = /(?:\s+limit\s+\d+\s+offset\s+\d+|\s+offset\s+\d+)$/i;
+
 function mysqlQueryData(form) {
   const sql = (form.get('sql_content') || '').trim().replace(/;$/, '');
-  const normalized = sql.replace(/\s+/g, ' ').toLowerCase();
+  const normalized = sql.replace(CONSOLE_PAGINATION_SUFFIX, '').replace(/\s+/g, ' ').toLowerCase();
   if (isCountSql(sql)) return countQueryData(form.get('sql_content'), MYSQL_TOTAL_ROWS);
   if (normalized === 'select 1') {
     return { column_list: ['1'], column_type: ['LONGLONG'], rows: [[1]], query_time: 0.001, affected_rows: 0, full_sql: form.get('sql_content'), is_masked: false };

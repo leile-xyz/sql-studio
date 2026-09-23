@@ -49,7 +49,7 @@ cargo check --locked --manifest-path src-tauri/Cargo.toml
 - 40 位 Access Token 存 Windows 凭据管理器（service `sql-studio-mcp`）；command 为 `mcp_status` / `mcp::mcp_reset_token`；MCP 客户端 JSON 用 `streamable-http` URL（带 `?token=`），两个路由都接受 `Authorization: Bearer`。
 - `src-tauri/src/mcp_tools.rs`：6 个工具 `list_environments` / `list_instances` / `list_databases` / `list_tables` / `get_table_schema` / `execute_sql`，只收定位参数，**不经参数传密码**；`execute_sql` 的 `limit` 默认 100、上限 1000。
 - `src-tauri/src/session.rs`：按 `envId` 解析环境（KV `sqls_envs`）与凭据（KV `sqls_creds` + 凭据管理器），优先复用进程内会话，否则用已保存凭据登录 —— 界面停在别的环境也能查询目标环境（跨环境免登录）。
-- 前端入口 `src/lib/mcp-dialog.mjs`，弹窗展示 `/mcp` 与 `/sql` 两个端点。
+- 前端入口 `src/lib/mcp-dialog.mjs`，弹窗展示 `/mcp` 与 `/sql` 两个端点；`/sql` 旁的 `?` 打开接口文档弹窗 `#sqlApiMask`（内容在 `src/index.html`，地址与 curl 示例由 `renderApiDoc` 按当前 Token 填充）。
 
 ## 服务端接口
 
