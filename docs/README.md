@@ -29,6 +29,7 @@
 | [控制台多 SQL](console-multi-sql/) | 当前语句/选区解析、多语句执行、失败继续、结果页签 | 已实现并验证 |
 | [SQL 自动联想](sql-autocomplete-enhancements/) | 语句隔离、跨词匹配、方言函数、完全匹配与 schema 隔离 | 已实现并验证 |
 | [数据网格与树联动](console-grid-enhancements/) | 网格列宽、排序筛选、复制导出、资源树联动 | 已实现并验证 |
+| [MCP 服务与 SQL 接口](mcp/) | 六个 MCP 工具、本地 `POST /sql`、跨环境会话与凭据边界 | 已实现并验证 |
 | [Windows 桌面端](windows-desktop/) | Tauri 2 架构、凭据、构建和运行边界 | 已实现并验证 |
 | [执行流程需求](execution-workflow/) | 流水线、插件数据链路、执行记录与存储边界 | 需求已整理 |
 | [流水线技术方案](execution-workflow/technical-design.md) | Rust 后台执行、SQLite、调度、插件与通知中心架构 | 待实施 |

@@ -107,11 +107,23 @@ CSV 导出会沿用已应用的 WHERE 和排序条件，从第一页开始按 10
 
 ## 开发与测试
 
-### MCP 资源工具
+### MCP 资源工具与本地 SQL 接口
 
-SQL Studio 启动后会在本机启动 MCP HTTP 服务，并在 MCP 管理模块展示连接地址和 Access Token。Token 保存在 Windows 凭据管理器中，重启软件不会变化；点击“重置”后旧 Token 立即失效。
+SQL Studio 启动后会在本机启动 HTTP 服务（`127.0.0.1:37625`），并在 MCP 管理模块展示连接地址和 Access Token。Token 保存在 Windows 凭据管理器中，重启软件不会变化；点击“重置”后旧 Token 立即失效。
 
-服务提供 `list_environments`、`list_instances`、`list_databases`、`list_tables` 和 `get_table_schema` 五个工具。工具只接收环境及资源定位参数，不要求 MCP 客户端传入账号密码；服务会复用 SQL Studio 当前登录会话，或使用环境管理中已保存的凭据建立会话。密码不会通过 MCP 参数传输，也不会写入日志。
+MCP 服务提供 `list_environments`、`list_instances`、`list_databases`、`list_tables`、`get_table_schema` 和 `execute_sql` 六个工具。工具只接收环境及资源定位参数，不要求 MCP 客户端传入账号密码；服务会复用已登录的会话，或使用环境管理中已保存的凭据建立会话。密码不会通过参数传输，也不会写入日志。
+
+同一端口还提供面向脚本的 `POST /sql` 接口，请求体与 `execute_sql` 工具参数一致：
+
+```powershell
+curl.exe -X POST "http://127.0.0.1:37625/sql?token=<Access Token>" `
+  -H "Content-Type: application/json" `
+  -d '{"envId":"pre","instanceName":"mysql-pre","databaseName":"app","schemaName":"","sql":"select 1","limit":10}'
+```
+
+成功返回 `{"ok":true,"result":{...}}`；执行失败（参数、凭据、SQL、网络原因）返回 HTTP 200 与 `{"ok":false,"error":"..."}`，token 无效返回 401，请求体不是 JSON 对象返回 400。token 也可以放在 `Authorization: Bearer <token>` 头里。`result` 含 `columns` / `columnTypes` / `rows` / `elapsedSeconds` / `affectedRows` / `fullSql` / `isMasked`，以及 `rowCount` / `rowLimit` / `truncated`。`limit` 默认 100，最大 1000。
+
+`envId` 决定用哪个环境的会话，因此可以查询与界面当前环境不同的环境（例如界面停在线上、查询预发）：只要目标环境在环境管理里配置过，并且本次运行登录过或勾选过“记住密码”。SQL 语句按原样提交给 Archery，由服务端的实例权限、审核与脱敏规则决定能否执行。
 
 MCP 服务只绑定 `127.0.0.1`，不影响原桌面程序的 Tauri 窗口和启动方式。
 

@@ -36,20 +36,22 @@ function renderStatus(byId, status) {
   const state = byId('mcpState');
   const stateName = status.running ? 'running' : (status.enabled ? 'failed' : 'disabled');
   const stateText = status.running ? '运行中' : (status.enabled ? '启动失败' : '已停用');
-  const url = streamableHttpUrl(status);
+  const url = withToken(status.endpoint, status.token);
   state.className = `mcp-state ${stateName}`;
   state.innerHTML = `<i></i>${stateText}`;
   byId('mcpEndpoint').textContent = url || '—';
   byId('mcpToken').textContent = status.token || '—';
+  byId('mcpSqlEndpoint').textContent = withToken(status.sqlEndpoint, status.token) || '—';
   byId('mcpJsonConfig').textContent = formatConfig(url);
   renderTools(byId('mcpTools'), status.tools || []);
   renderError(byId('mcpError'), status.error);
 }
 
-function streamableHttpUrl(status) {
-  if (!status.endpoint) return '';
-  const separator = status.endpoint.includes('?') ? '&' : '?';
-  return status.token ? `${status.endpoint}${separator}token=${status.token}` : status.endpoint;
+/** 把 token 拼到端点后面，方便整段复制到客户端或 curl。 */
+function withToken(endpoint, token) {
+  if (!endpoint) return '';
+  const separator = endpoint.includes('?') ? '&' : '?';
+  return token ? `${endpoint}${separator}token=${token}` : endpoint;
 }
 
 function formatConfig(url) {
@@ -66,6 +68,7 @@ function renderTools(container, tools) {
     list_databases: '返回指定实例的数据库',
     list_tables: '返回指定数据库或 schema 的数据表',
     get_table_schema: '返回数据表的字段、索引和 DDL 结构',
+    execute_sql: '在指定环境执行 SQL，会话复用或按已保存凭据登录，可跨环境查询',
   };
   container.replaceChildren();
   if (!tools.length) {

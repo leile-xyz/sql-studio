@@ -132,13 +132,42 @@ async function testMcpStructure() {
   const tools = await readUtf8('src-tauri/src/mcp_tools.rs');
   const main = await readUtf8('src-tauri/src/main.rs');
   const dialog = await readUtf8('src/lib/mcp-dialog.mjs');
-  for (const name of ['list_environments', 'list_instances', 'list_databases', 'list_tables', 'get_table_schema']) {
+  const html = await readUtf8('src/index.html');
+  const names = ['list_environments', 'list_instances', 'list_databases', 'list_tables', 'get_table_schema', 'execute_sql'];
+  for (const name of names) {
     assert.ok(tools.includes(`const ${name.toUpperCase()}`) || tools.includes(`"${name}"`), `MCP missing ${name}`);
+    assert.ok(dialog.includes(name + ':'), `MCP 弹窗缺少 ${name} 说明`);
   }
   assert.ok(mcp.includes('load_or_create_token()'));
-  assert.ok(mcp.includes('mcp_reset_token') || main.includes('mcp::reset_token'));
+  assert.ok(main.includes('mcp::mcp_reset_token'), '重置 Token 必须以 mcp_reset_token 注册');
+  assert.ok(dialog.includes("invoke('mcp_reset_token')"), 'MCP 弹窗必须调用 mcp_reset_token');
   assert.ok(main.includes('mcp::load_or_create_token()'));
   assert.ok(dialog.includes('mcpResetToken'));
+  assert.ok(mcp.includes('post(sql_request)'), 'SQL 执行接口必须注册到 MCP 服务端口');
+  assert.ok(mcp.includes('sql_endpoint'), 'MCP 状态必须暴露 SQL 执行接口地址');
+  assert.ok(html.includes('id="mcpSqlEndpoint"') && dialog.includes('mcpSqlEndpoint'), 'MCP 弹窗必须展示 SQL 执行接口');
+  const session = await readUtf8('src-tauri/src/session.rs');
+  assert.ok(session.includes('pub(crate) async fn ensure_session'), '跨环境会话解析必须集中在 session 模块');
+  assert.ok(!tools.includes('async fn ensure_session'), 'MCP 工具不应再自带一份会话解析');
+}
+
+async function testCommandNameConsistency() {
+  const main = await readUtf8('src-tauri/src/main.rs');
+  const handler = main.match(/generate_handler!\[([\s\S]*?)\]/);
+  assert.ok(handler, 'main.rs 必须通过 generate_handler! 注册命令');
+  const registered = new Set(
+    handler[1].split(',').map(item => item.trim()).filter(Boolean)
+      .map(item => item.split('::').pop()),
+  );
+  assert.ok(registered.size >= 20, 'generate_handler! 命令清单解析异常');
+  const frontend = (await walkFiles(absolutePath('src')))
+    .filter(file => ['.js', '.mjs', '.html'].includes(path.extname(file)));
+  for (const file of frontend) {
+    const source = await readFile(file, 'utf8');
+    for (const match of source.matchAll(/invoke\(\s*'([a-z0-9_]+)'/g)) {
+      assert.ok(registered.has(match[1]), `${path.relative(REPO_ROOT, file)} 调用了未注册的命令 ${match[1]}`);
+    }
+  }
 }
 
 async function testConsoleLauncherStructure() {
@@ -216,6 +245,7 @@ await testTreeConsoleContextIsolation();
 await testDesktopBackgroundMode();
 await testScheduleStructure();
 await testMcpStructure();
+await testCommandNameConsistency();
 await testConsoleLauncherStructure();
 await testPluginModuleStructure();
 await testMarkdownLinks(files);

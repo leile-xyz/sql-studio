@@ -23,7 +23,7 @@ sql-studio/
 ## 入口与关键文件
 
 - Rust 入口 `src-tauri/src/main.rs`：注册全部 `tauri::command` + `setup()`（KV、凭据、MCP、调度、托盘）。
-- Rust 模块：`archery/`（登录 / 代发 / 每环境 Cookie Jar / CSRF：`login` / `api_get` / `api_post`）、`background.rs`（托盘 / 单实例 / 隐藏恢复）、`mcp.rs` + `mcp_tools.rs`、`scheduler.rs`（cron 调度）、`storage/`（`workflow_db.rs` SQLite + `migrations.rs`）、`workflows/`（commands / domain / execution* / plugin_* / repository / schedule_* / validation）、`notifications/`、`plugins/`（`dingtalk.rs`、`message_builder.rs`）。
+- Rust 模块：`archery/`（登录 / 代发 / 每环境 Cookie Jar / CSRF：`login` / `api_get` / `api_post`）、`background.rs`（托盘 / 单实例 / 隐藏恢复）、`mcp.rs` + `mcp_tools.rs`、`session.rs`（按 `envId` 解析环境与凭据、复用或建立会话）、`scheduler.rs`（cron 调度）、`storage/`（`workflow_db.rs` SQLite + `migrations.rs`）、`workflows/`（commands / domain / execution* / plugin_* / repository / schedule_* / validation）、`notifications/`、`plugins/`（`dingtalk.rs`、`message_builder.rs`）。
 - 前端 `src/`：`index.html`、`app.js`（页面编排）、`app.css`、`theme-bootstrap.mjs`、`default-envs.json`；`src/lib/`（约 48 文件）：`api.js`（调 Tauri）、`sql-editor.mjs`、`db-context.mjs`、`console-*.mjs`、`resource-tree-*.mjs`、`workflow-*.mjs`、`mcp-dialog.mjs`、`store.js`、`ddl.js` 等。`src/lib/package.json` 为 `{"type":"module"}`。
 - 权限：`src-tauri/capabilities/default.json` 仅 `core:default`，业务走自定义 command。
 
@@ -40,15 +40,16 @@ cargo check --locked --manifest-path src-tauri/Cargo.toml
 
 - `test:unit`：`node test/theme.mjs && node test/unit.mjs && …`（主题 / 会话恢复 / 资源树 / 表空态 / 工作流排期 / 联想等）。
 - `test:project`：`node test/project.mjs`（工程检查）。
-- E2E：`test/e2e.js`（playwright-core + `test/mock-archery.js` + WebView2 CDP），不是 npm script。
+- E2E：`test/e2e.js`（界面主流程）与 `test/e2e-mcp.js`（MCP / `POST /sql` 接口与跨环境免登录），均为 playwright-core + `test/mock-archery.js` + WebView2 CDP，不是 npm script。
 - 产物：`src-tauri/target/release/sql-studio.exe`。
 
-## MCP 服务
+## MCP 服务与本地 SQL 接口
 
-- `src-tauri/src/mcp.rs`：axum HTTP 服务，绑定 **`127.0.0.1:37625`**，路由 `POST /mcp`，协议 `2025-06-18`，server name `sql-studio`。
-- 40 位 Access Token 存 Windows 凭据管理器（service `sql-studio-mcp`）；command 为 `mcp_status` / `mcp::reset_token`；客户端 JSON 用 `streamable-http` URL（带 `?token=`）。
-- `src-tauri/src/mcp_tools.rs`：5 个工具 `list_environments` / `list_instances` / `list_databases` / `list_tables` / `get_table_schema`，只收定位参数，复用当前会话 / 已存凭据，**不经参数传密码**。
-- 前端入口 `src/lib/mcp-dialog.mjs`。
+- `src-tauri/src/mcp.rs`：axum HTTP 服务，绑定 **`127.0.0.1:37625`**，路由 `POST /mcp`（MCP 协议 `2025-06-18`，server name `sql-studio`）与 `POST /sql`（脚本用 SQL 执行接口，请求体同 `execute_sql` 参数，失败返回 `{ok:false,error}`）。
+- 40 位 Access Token 存 Windows 凭据管理器（service `sql-studio-mcp`）；command 为 `mcp_status` / `mcp::mcp_reset_token`；MCP 客户端 JSON 用 `streamable-http` URL（带 `?token=`），两个路由都接受 `Authorization: Bearer`。
+- `src-tauri/src/mcp_tools.rs`：6 个工具 `list_environments` / `list_instances` / `list_databases` / `list_tables` / `get_table_schema` / `execute_sql`，只收定位参数，**不经参数传密码**；`execute_sql` 的 `limit` 默认 100、上限 1000。
+- `src-tauri/src/session.rs`：按 `envId` 解析环境（KV `sqls_envs`）与凭据（KV `sqls_creds` + 凭据管理器），优先复用进程内会话，否则用已保存凭据登录 —— 界面停在别的环境也能查询目标环境（跨环境免登录）。
+- 前端入口 `src/lib/mcp-dialog.mjs`，弹窗展示 `/mcp` 与 `/sql` 两个端点。
 
 ## 服务端接口
 

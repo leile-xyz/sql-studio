@@ -11,7 +11,14 @@ use tokio::sync::Mutex;
 
 const USER_AGENT: &str = "Mozilla/5.0 (SQL Studio Desktop)";
 const NETWORK_ERROR: &str = "网络请求失败，请检查是否连入内网 / 域名是否可达";
+/// Archery 返回登录页面时给出的提示，出现它说明当前会话已失效。
+const SESSION_EXPIRED: &str = "未登录或会话已过期，请重新登录";
 pub(crate) const DEFAULT_QUERY_LIMIT: u32 = 100;
+
+/// 错误是否表示 Archery 会话已失效（前端据此触发自动登录，MCP / HTTP 侧据此重登一次）。
+pub(crate) fn is_session_expired(error: &str) -> bool {
+    error.contains("未登录") || error.contains("会话已过期")
+}
 
 #[derive(Clone, Debug, Deserialize, Eq, Hash, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -371,7 +378,7 @@ async fn parse_response(response: reqwest::Response) -> Result<Value, String> {
     let body = response.text().await.map_err(|error| error.to_string())?;
     let value: Value = serde_json::from_str(&body).map_err(|_| {
         if body.to_ascii_lowercase().contains("<html") {
-            "未登录或会话已过期，请重新登录".to_string()
+            SESSION_EXPIRED.to_string()
         } else {
             format!("响应解析失败（HTTP {status}）")
         }
@@ -487,6 +494,14 @@ mod tests {
         assert!(validate_context(&context("https://user:pass@example.com/path")).is_err());
         assert!(validate_path("https://evil.example.com/api").is_err());
         assert!(validate_path("//evil.example.com/api").is_err());
+    }
+
+    #[test]
+    fn detects_expired_session_messages() {
+        assert!(is_session_expired(SESSION_EXPIRED));
+        assert!(is_session_expired("未登录，请先登录"));
+        assert!(!is_session_expired("SQL 语法错误"));
+        assert!(!is_session_expired(NETWORK_ERROR));
     }
 
     #[test]

@@ -2,7 +2,7 @@ use std::sync::{Arc, RwLock};
 
 use axum::{
     extract::{Query, State},
-    http::StatusCode,
+    http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::post,
     Json, Router,
@@ -16,6 +16,8 @@ use tokio::net::TcpListener;
 const PROTOCOL_VERSION: &str = "2025-06-18";
 const SERVER_NAME: &str = "sql-studio";
 const MCP_PORT: u16 = 37625;
+const MCP_PATH: &str = "/mcp";
+const SQL_PATH: &str = "/sql";
 const TOKEN_SERVICE: &str = "sql-studio-mcp";
 const TOKEN_ACCOUNT: &str = "access-token";
 const TOKEN_LENGTH: usize = 40;
@@ -32,6 +34,7 @@ pub struct McpStatus {
     pub running: bool,
     pub endpoint: String,
     pub streamable_http_url: String,
+    pub sql_endpoint: String,
     pub json_config: Value,
     pub token: String,
     pub tools: Vec<String>,
@@ -95,7 +98,8 @@ pub fn start_host(app: AppHandle, token: String) -> McpHost {
                 status: status.clone(),
             };
             let router = Router::new()
-                .route("/mcp", post(mcp_request))
+                .route(MCP_PATH, post(mcp_request))
+                .route(SQL_PATH, post(sql_request))
                 .with_state(state);
             if let Err(error) = axum::serve(listener, router).await {
                 status.write().expect("MCP status lock").error = Some(error.to_string());
@@ -106,7 +110,8 @@ pub fn start_host(app: AppHandle, token: String) -> McpHost {
 }
 
 fn build_status(token: String) -> McpStatus {
-    let endpoint = format!("http://127.0.0.1:{MCP_PORT}/mcp");
+    let endpoint = format!("http://127.0.0.1:{MCP_PORT}{MCP_PATH}");
+    let sql_endpoint = format!("http://127.0.0.1:{MCP_PORT}{SQL_PATH}");
     let streamable_http_url = format!("{endpoint}?token={token}");
     let json_config = json!({
         "mcpServers": {
@@ -121,6 +126,7 @@ fn build_status(token: String) -> McpStatus {
         running: false,
         endpoint,
         streamable_http_url,
+        sql_endpoint,
         json_config,
         token,
         tools: crate::mcp_tools::names(),
@@ -144,7 +150,7 @@ impl McpHost {
 }
 
 #[tauri::command]
-pub fn reset_token(host: TauriState<'_, McpHost>) -> Result<McpStatus, String> {
+pub fn mcp_reset_token(host: TauriState<'_, McpHost>) -> Result<McpStatus, String> {
     let token = generate_token();
     token_entry()?
         .set_password(&token)
@@ -166,11 +172,11 @@ fn generate_token() -> String {
 
 async fn mcp_request(
     Query(query): Query<TokenQuery>,
+    headers: HeaderMap,
     State(state): State<HttpState>,
     body: String,
 ) -> Response {
-    let expected = state.status.read().expect("MCP status lock").token.clone();
-    if !authorized(query.token.as_deref(), &expected) {
+    if !token_matches(&state, request_token(&query, &headers)) {
         return (
             StatusCode::UNAUTHORIZED,
             Json(json!({"error":"MCP token 无效"})),
@@ -181,6 +187,75 @@ async fn mcp_request(
         Some(response) => (StatusCode::OK, Json(response)).into_response(),
         None => StatusCode::ACCEPTED.into_response(),
     }
+}
+
+/// 本地 HTTP SQL 接口：请求体与 MCP 工具 execute_sql 的参数一致（camelCase），
+/// 支持 `Authorization: Bearer <token>` 或 `?token=`。
+/// 工具执行失败仍返回 200，用 ok=false 与 error 说明原因，与 MCP 侧一致。
+async fn sql_request(
+    Query(query): Query<TokenQuery>,
+    headers: HeaderMap,
+    State(state): State<HttpState>,
+    body: String,
+) -> Response {
+    if !token_matches(&state, request_token(&query, &headers)) {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({ "ok": false, "error": "MCP token 无效" })),
+        )
+            .into_response();
+    }
+    let arguments = match parse_sql_body(&body) {
+        Ok(value) => value,
+        Err(error) => return bad_request(&error),
+    };
+    match crate::mcp_tools::execute_sql(&state.app, arguments).await {
+        Ok(result) => (
+            StatusCode::OK,
+            Json(json!({ "ok": true, "result": result })),
+        )
+            .into_response(),
+        Err(error) => {
+            (StatusCode::OK, Json(json!({ "ok": false, "error": error }))).into_response()
+        }
+    }
+}
+
+fn bad_request(message: &str) -> Response {
+    (
+        StatusCode::BAD_REQUEST,
+        Json(json!({ "ok": false, "error": message })),
+    )
+        .into_response()
+}
+
+/// `/sql` 请求体必须是 JSON 对象，字段与 MCP 工具 execute_sql 的参数一致。
+fn parse_sql_body(body: &str) -> Result<Value, String> {
+    match serde_json::from_str::<Value>(body) {
+        Ok(value) if value.is_object() => Ok(value),
+        Ok(_) => Err("请求体必须是 JSON 对象".to_string()),
+        Err(error) => Err(format!("请求体 JSON 解析失败：{error}")),
+    }
+}
+
+fn token_matches(state: &HttpState, token: Option<&str>) -> bool {
+    let expected = state.status.read().expect("MCP status lock").token.clone();
+    authorized(token, &expected)
+}
+
+/// token 优先取 Authorization 头，其次取 `?token=`（MCP 客户端配置沿用查询参数写法）。
+fn request_token<'a>(query: &'a TokenQuery, headers: &'a HeaderMap) -> Option<&'a str> {
+    bearer_token(headers).or(query.token.as_deref())
+}
+
+fn bearer_token(headers: &HeaderMap) -> Option<&str> {
+    headers
+        .get(header::AUTHORIZATION)?
+        .to_str()
+        .ok()?
+        .strip_prefix("Bearer ")
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
 }
 
 #[derive(Debug, Deserialize)]
@@ -277,9 +352,10 @@ mod tests {
             .await
             .unwrap();
         let tools = response["result"]["tools"].as_array().unwrap();
-        assert_eq!(tools.len(), 5);
+        assert_eq!(tools.len(), 6);
         assert_eq!(tools[0]["name"], crate::mcp_tools::LIST_ENVIRONMENTS);
         assert_eq!(tools[4]["name"], crate::mcp_tools::GET_TABLE_SCHEMA);
+        assert_eq!(tools[5]["name"], crate::mcp_tools::EXECUTE_SQL);
     }
 
     #[tokio::test]
@@ -305,6 +381,7 @@ mod tests {
         let expected_url = "http://127.0.0.1:37625/mcp?token=test-token";
 
         assert_eq!(status["streamableHttpUrl"], expected_url);
+        assert_eq!(status["sqlEndpoint"], "http://127.0.0.1:37625/sql");
         assert_eq!(
             status["jsonConfig"]["mcpServers"][SERVER_NAME]["type"],
             "streamable-http"
@@ -313,6 +390,40 @@ mod tests {
             status["jsonConfig"]["mcpServers"][SERVER_NAME]["url"],
             expected_url
         );
+    }
+
+    #[test]
+    fn rejects_sql_body_that_is_not_json_object() {
+        assert!(parse_sql_body("[]").is_err());
+        assert!(parse_sql_body("").is_err());
+        assert!(parse_sql_body(r#"{"envId":"pre"}"#).is_ok());
+        assert_eq!(bad_request("bad").status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn accepts_token_from_header_or_query() {
+        let mut headers = HeaderMap::new();
+        let from_query = TokenQuery {
+            token: Some("query-token".into()),
+        };
+        assert_eq!(request_token(&from_query, &headers), Some("query-token"));
+
+        headers.insert(
+            header::AUTHORIZATION,
+            "Bearer header-token".parse().unwrap(),
+        );
+        assert_eq!(request_token(&from_query, &headers), Some("header-token"));
+        assert_eq!(
+            request_token(&TokenQuery { token: None }, &headers),
+            Some("header-token")
+        );
+
+        headers.insert(header::AUTHORIZATION, "Basic abc".parse().unwrap());
+        assert_eq!(request_token(&from_query, &headers), Some("query-token"));
+        assert_eq!(request_token(&TokenQuery { token: None }, &headers), None);
+
+        headers.insert(header::AUTHORIZATION, "Bearer   ".parse().unwrap());
+        assert_eq!(request_token(&TokenQuery { token: None }, &headers), None);
     }
 
     #[test]

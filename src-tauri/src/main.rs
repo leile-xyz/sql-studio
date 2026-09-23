@@ -10,6 +10,7 @@ mod mcp_tools;
 mod notifications;
 mod plugins;
 mod scheduler;
+mod session;
 mod storage;
 mod workflows;
 
@@ -167,7 +168,7 @@ fn main() {
             cred_delete,
             app_version,
             mcp_status,
-            mcp::reset_token,
+            mcp::mcp_reset_token,
             export_csv,
             plugins::dingtalk::dingtalk_config_status,
             plugins::dingtalk::dingtalk_save_config,
