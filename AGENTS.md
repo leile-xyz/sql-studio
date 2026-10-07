@@ -34,6 +34,7 @@ npm ci
 npm test                                            # test:unit + test:project
 npm run dev                                         # tauri dev
 npm run build                                       # tauri build --no-bundle（便携 exe）
+npm run deploy                                      # 把 exe 复制到工作区外运行目录
 cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
 cargo check --locked --manifest-path src-tauri/Cargo.toml
 ```
@@ -41,7 +42,8 @@ cargo check --locked --manifest-path src-tauri/Cargo.toml
 - `test:unit`：`node test/theme.mjs && node test/unit.mjs && …`（主题 / 会话恢复 / 资源树 / 表空态 / 工作流排期 / 联想等）。
 - `test:project`：`node test/project.mjs`（工程检查）。
 - E2E：`test/e2e.js`（界面主流程）与 `test/e2e-mcp.js`（MCP / `POST /sql` 接口与跨环境免登录），均为 playwright-core + `test/mock-archery.js` + WebView2 CDP，不是 npm script。
-- 产物：`src-tauri/target/release/sql-studio.exe`。
+- 产物：`src-tauri/target/release/sql-studio.exe`；`npm run deploy` 将其复制到工作区外的 `D:\Program Files\SQL Studio\`（可用 `SQL_STUDIO_DEPLOY_DIR` 覆盖）。
+- **运行位置（易踩点）**：`D:\my\fanxiaofan` 会被 Agent 沙箱（`CodexSandboxService.OpenAI.Codex` / `dsh-sandbox-windows-acl`）间歇性标记为 workspace-write。被标记期间，**从该目录内启动的任何 exe 都只能写工作区内**；而 `workflow.db` 在 `%APPDATA%\com.fanxiaofan.sql-studio\`（工作区外），写入被拒会让 Tauri `setup()` 返回 Err 并以退出码 101 panic，表现是**窗口完全不出现**，只有 stderr 一行（`attempt to write a readonly database` 或 `unable to open database file`），Windows 事件日志无记录。该状态会随沙箱会话结束自行消失，容易误判成杀软拦截或库损坏。开始菜单 `sql-studio.lnk` 已指向工作区外的部署副本；从 `target\release` 或 `target\debug` 直接运行遇到此问题时，改用部署副本即可（工作区外进程不受该限制）。
 
 ## MCP 服务与本地 SQL 接口
 
