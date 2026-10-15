@@ -27,7 +27,7 @@
     "build": "tauri build --no-bundle",
     "deploy": "node scripts/deploy.mjs",
     "test": "npm run test:unit && npm run test:project",
-    "test:unit": "node test/theme.mjs && node test/unit.mjs && node test/session-recovery.mjs && node test/resource-tree.mjs && node test/table-empty-state.mjs && node test/workflow-schedule.mjs && node test/workflow-autocomplete.mjs",
+    "test:unit": "node test/theme.mjs && node test/workspace-tabs.mjs && node test/row-copy.mjs && node test/grid-state.mjs && node test/unit.mjs && node test/session-recovery.mjs && node test/resource-tree.mjs && node test/table-empty-state.mjs && node test/workflow-schedule.mjs && node test/workflow-autocomplete.mjs",
     "test:project": "node test/project.mjs"
   },
   "devDependencies": {

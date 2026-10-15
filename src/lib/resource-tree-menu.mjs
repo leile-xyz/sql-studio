@@ -46,7 +46,7 @@ export function renderTreeContextMenuView(node, options = {}) {
     items.push(`<div class="mi" data-act="tree-open-console" data-uid="${node.uid}"><span class="console-menu-icon">›_</span><span>在当前控制台打开</span></div>`);
   }
   if (options.searching && isTreeRevealNode(node)) {
-    items.push(`<div class="mi" data-act="tree-reveal" data-uid="${node.uid}"><span class="menu-action-icon">⌖</span><span>清除搜索并定位</span></div>`);
+    items.push(`<div class="mi" data-act="tree-reveal" data-uid="${node.uid}"><span class="menu-action-icon">⌖</span><span>定位</span></div>`);
   }
   if (!items.length) return '';
   return `<div class="menu-title">${escapeHtml(node.name)}</div>` + items.join('');

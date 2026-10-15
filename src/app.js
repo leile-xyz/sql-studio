@@ -18,11 +18,13 @@ import { resolveTreeConsoleChange, showTreeContextMenu } from './lib/resource-tr
 import { createTreeLocator } from './lib/resource-tree-locate.mjs';
 import { renderTableView, resolveTableSubview } from './lib/table-view.mjs';
 import { buildBrowseSql, buildCountSql, findDbType, isPostgresType, parseCountTotal } from './lib/db-context.mjs';
-import { renderTabBarView, showAllConsolesMenu, showConsoleMenu, showTabContextMenu } from './lib/console-menu-view.mjs';
+import { showTabContextMenu } from './lib/console-menu-view.mjs';
+import { createWorkspaceTabs } from './lib/workspace-tabs.mjs';
 import { ConsoleRenameController } from './lib/console-rename.mjs';
 import { closeWorkspaceTabs, consoleSessionState, createNewConsole, defaultConsoleTab, deleteWorkspaceConsole, restoreConsoleWorkspace } from './lib/console-workspace.mjs';
 import { bindWorkflowManager } from './lib/workflow-manager.mjs';
 import { createSessionRecovery } from './lib/session-recovery.mjs';
+import { createGridInteractions } from './lib/grid-interactions.mjs';
 const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const attr = s => String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const state = {
@@ -37,6 +39,15 @@ const state = {
   lastCtx: null, // 最近浏览的上下文 {inst, db, schema}，新建控制台时继承
 }; let workflowManager; const $ = id => document.getElementById(id);
 const curTab = () => state.tabs.find(t => t.id === state.activeTabId) || null;
+const workspaceTabs = createWorkspaceTabs({
+  root: $('tabbar'), menu: $('tabListMenu'), window, icons: ICO, getState: () => state,
+  activateTab, closeTab: id => closeTabs({ id, mode: 'self' }), hideMenus,
+});
+const gridInteractions = createGridInteractions({
+  document, getCurrentTab: curTab, hideMenus, toast,
+  writeClipboard: text => navigator.clipboard.writeText(text),
+  onSelectionChange: text => { $('sbCell').textContent = text; },
+});
 const isCurrentEnv = (env, origin) => !!env && env.id === state.activeEnvId && origin === state.origin;
 const consoleSessionManager = new ConsoleSessionManager({ store, onError: reportConsoleSessionError });
 const recoverExpiredSession = createSessionRecovery({
@@ -200,7 +211,7 @@ function toggleEnvMenu() {
   m.style.left = r.left + 'px'; m.style.top = (r.bottom + 6) + 'px';
   m.classList.add('show');
 }
-function hideMenus() { document.querySelectorAll('.menu').forEach(m => m.classList.remove('show')); }
+function hideMenus() { workspaceTabs.hideList(); document.querySelectorAll('.menu').forEach(m => m.classList.remove('show')); }
 async function switchEnv(id) {
   hideMenus();
   if (id === state.activeEnvId && state.connected) return;
@@ -603,15 +614,9 @@ function activateTab(id) {
     persistConsoleSession();
     if (tab.instance && tab.dbs == null && state.instances.length) loadConsoleDbs(tab);
   }
-  renderTabs(); renderBody();
+  renderTabs({ revealActive: true }); renderBody();
 }
-function renderTabs() { $('tabbar').innerHTML = renderTabBarView({ tabs: state.tabs, activeTabId: state.activeTabId, consoleIcon: ICO.console, tableIcon: ICO.table }); }
-function toggleConsoleMenu(button) {
-  showConsoleMenu({ button, tabs: state.tabs, activeTabId: state.activeTabId, activeConsoleKey: state.activeConsoleKey, hideMenus });
-}
-function toggleAllConsolesMenu(button) {
-  showAllConsolesMenu({ button, tabs: state.tabs, activeTabId: state.activeTabId, activeConsoleKey: state.activeConsoleKey });
-}
+function renderTabs(options) { workspaceTabs.render(options); }
 function setStatus(ok, text) {
   const el = $('sbStatus');
   if (text === undefined) { el.innerHTML = ''; return; }
@@ -619,6 +624,7 @@ function setStatus(ok, text) {
 }
 function renderBody() {
   autocomplete.hide();
+  gridInteractions.unmount();
   const body = $('tabbody');
   const tab = curTab();
   $('sbSql').textContent = '';
@@ -688,6 +694,7 @@ function renderTableTab(tab, body) {
   if (subview !== 'data' && !tab.meta && !tab.metaLoading && !tab.metaErr) ensureMeta(tab);
   const view = renderTableView(tab);
   body.innerHTML = view.html;
+  gridInteractions.mount();
   $('sbSql').textContent = view.sql;
   if (view.status) {
     setStatus(true, view.status.text);
@@ -787,7 +794,9 @@ function syncEditor(ta, options = {}) {
 function renderConsoleResult(tab) {
   const box = $('conResults');
   const view = renderConsoleResultView(tab);
+  gridInteractions.unmount(); // 替换 DOM 前保存网格焦点。
   box.innerHTML = view.html;
+  gridInteractions.mount();
   if (!view.status) return;
   $('sbSql').textContent = view.sql;
   $('sbTime').textContent = view.elapsed;
@@ -934,8 +943,8 @@ function bindDelegation() {
     openDefaultConsole,
     openRenameConsole: id => consoleRename.open(id),
     deleteConsole,
-    toggleConsoleMenu,
-    toggleAllConsolesMenu,
+    toggleConsoleMenu: workspaceTabs.toggleConsoleMenu,
+    toggleAllConsolesMenu: workspaceTabs.toggleAllConsolesMenu,
     persistConsoleSession,
     renderBody,
     ensureMeta,
@@ -949,7 +958,7 @@ function bindDelegation() {
     exportTableCsv: csvActions.exportTableCsv,
     exportConsoleCsv: csvActions.exportConsoleCsv,
     reloadConsolePage,
-    selectCell,
+    grid: gridInteractions,
     syncEditor,
     changeConsoleInstance,
     changeConsoleDatabase,
@@ -973,11 +982,6 @@ function cycleSort(tab, col) {
   else tab.orderBy = tab.orderBy.filter(x => x.col !== col);
   tab.page = 1;
   reloadData(tab);
-}
-function selectCell(td) {
-  document.querySelectorAll('.cell-sel').forEach(e => e.classList.remove('cell-sel'));
-  td.classList.add('cell-sel');
-  $('sbCell').textContent = `行 ${td.dataset.r} · ${td.dataset.col}`;
 }
 /* ================= 弹窗 / toast ================= */
 function openModal(id) { $(id).classList.add('show'); }

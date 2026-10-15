@@ -7,7 +7,43 @@ npm ci
 npm test
 ```
 
-测试覆盖 SQL 拆分、多语句格式化、自动联想、MySQL/PostgreSQL 方言、schema 上下文、多控制台会话迁移与恢复、CSV、关于弹窗元数据和桌面端项目结构。
+测试覆盖 SQL 拆分、多语句格式化、自动联想、MySQL/PostgreSQL 方言、schema 上下文、多控制台会话迁移与恢复、工作区标签搜索与键盘导航、CSV、整行多格式复制、网格选择与冻结状态、关于弹窗元数据和桌面端项目结构。
+
+## 网格浏览器交互测试
+
+需要 Python、Python Playwright 和 Chromium。测试使用本地固定数据，加载生产表格渲染器和事件委托，覆盖 Shift/Ctrl 多选、正反向区间与取消选择、右键保留集合、批量复制和快捷键、双轴冻结、列宽调整、分页及结果页签状态隔离，并输出明暗主题截图。
+
+在仓库根目录启动静态服务：
+
+```powershell
+py -m http.server 18765 --bind 127.0.0.1
+```
+
+在另一个终端运行测试；使用现有 Chromium 时，可通过 `--browser` 传入其可执行文件路径：
+
+```powershell
+py -X utf8 test/grid-browser.py --output "$env:TEMP\sql-studio-grid"
+```
+
+测试完成后停止静态服务；`--inspect` 可仅检查初始 DOM 并截图。
+
+## 多标签浏览器交互测试
+
+测试使用 30 个已打开标签和一个已关闭控制台，直接加载生产标签组件、事件委托及表格渲染器。覆盖横向滚轮与按钮、手动滚动位置保持、当前标签定位、同名表搜索、键盘与中文输入、批量关闭、控制台重开、空状态和窗口缩放，并输出明暗主题截图。
+
+在仓库根目录启动静态服务：
+
+```powershell
+py -m http.server 18766 --bind 127.0.0.1
+```
+
+在另一个终端运行测试；`--browser` 可指定现有 Chromium 可执行文件，`--inspect` 仅检查初始 DOM 并截图：
+
+```powershell
+py -X utf8 test/workspace-tabs-browser.py --output "$env:TEMP\sql-studio-tabs"
+```
+
+测试完成后停止静态服务。组件测试不修改桌面客户端的数据文件，也不连接数据库；Tauri 宿主流程由下文 Windows E2E 单独验证。
 
 ## 静态检查
 

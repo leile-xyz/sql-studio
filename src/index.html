@@ -10,12 +10,6 @@
 
 <!-- 顶栏 -->
 <div id="topbar">
-  <div class="logo">
-    <div class="mark">
-      <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 2.2c-3 0-5.2.9-5.2 2v7.6c0 1.1 2.2 2 5.2 2s5.2-.9 5.2-2V4.2c0-1.1-2.2-2-5.2-2z"/><ellipse cx="8" cy="4.2" rx="5.2" ry="2"/><path d="M2.8 8c0 1.1 2.2 2 5.2 2s5.2-.9 5.2-2"/></svg>
-    </div>
-    SQL Studio <span class="sub">for Archery</span>
-  </div>
   <div class="env-btn" id="envBtn">
     <span class="dot" id="envDot"></span>
     <span id="envName">—</span>
@@ -280,7 +274,9 @@
 <div class="menu console-menu" id="consoleMenu"></div>
 <div class="menu console-all-menu" id="consoleAllMenu"></div>
 <div class="menu tab-context-menu" id="tabContextMenu"></div>
+<div class="menu tab-list-menu" id="tabListMenu" role="dialog" aria-label="已打开的标签"></div>
 <div class="menu tree-context-menu" id="treeContextMenu"></div>
+<div class="menu grid-context-menu" id="gridContextMenu" role="menu" aria-label="表格操作"></div>
 
 <!-- 主体 -->
 <div id="main">
@@ -298,7 +294,7 @@
   </div>
   <div id="content">
     <div id="tabbar"></div>
-    <div id="tabbody"></div>
+    <div id="tabbody" role="tabpanel" aria-label="查询工作区"></div>
   </div>
 </div>
 

@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>SQL Studio 标签导航测试</title>
+  <link rel="stylesheet" href="../src/app.css">
+</head>
+<body>
+  <div id="topbar">
+    <div class="env-btn"><span class="dot" style="background:var(--green)"></span><span>预览环境</span><span class="url">demo.local</span><span class="caret">▼</span></div>
+    <div class="conn"><span class="dot" style="background:var(--green)"></span><span>固定测试数据</span></div>
+    <div class="spacer"></div><button class="icon-btn" id="fixtureTheme" aria-label="切换主题">☾</button>
+  </div>
+  <div class="menu console-menu" id="consoleMenu"></div>
+  <div class="menu console-all-menu" id="consoleAllMenu"></div>
+  <div class="menu tab-context-menu" id="tabContextMenu"></div>
+  <div class="menu tab-list-menu" id="tabListMenu" role="dialog" aria-label="已打开的标签"></div>
+  <div id="main">
+    <div id="sidebar">
+      <div class="panel-head">数据库<span class="grow"></span><span>⟳</span></div>
+      <div class="search-wrap"><input placeholder="搜索数据库或数据表…" aria-label="搜索数据库或数据表"></div>
+      <div id="tree"></div>
+    </div>
+    <div id="content"><div id="tabbar"></div><div id="tabbody" role="tabpanel" aria-label="查询工作区"></div></div>
+  </div>
+  <div id="statusbar"><span id="sbStatus"></span><span class="sql" id="sbSql"></span><span id="sbTime"></span><span id="sbCell"></span></div>
+  <script type="module" src="workspace-tabs-fixture.mjs"></script>
+</body>
+</html>

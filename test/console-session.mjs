@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { setTimeout as delay } from 'node:timers/promises';
-import { renderAllConsolesMenuView, renderConsoleMenuView, renderTabBarView, renderTabContextMenuView } from '../src/lib/console-menu-view.mjs';
+import { renderAllConsolesMenuView, renderConsoleMenuView, renderTabContextMenuView } from '../src/lib/console-menu-view.mjs';
+import { renderTabBarView } from '../src/lib/workspace-tabs-view.mjs';
 import { renameConsoleTitle } from '../src/lib/console-rename.mjs';
 import { ConsoleSessionManager } from '../src/lib/console-session.mjs';
 import { closeWorkspaceTab, closeWorkspaceTabs, consoleIdentity, consoleSessionState, createNewConsole, defaultConsoleTab, deleteWorkspaceConsole, restoreConsoleWorkspace, visibleTabs } from '../src/lib/console-workspace.mjs';

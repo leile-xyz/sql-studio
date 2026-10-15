@@ -214,7 +214,7 @@ assert.equal(renderTreeContextMenuView(table).includes('tree-reveal'), false);
 const searchingDatabase = renderTreeContextMenuView(database, { searching: true });
 assert.match(searchingDatabase, /data-act="tree-open-console"/);
 assert.match(searchingDatabase, /data-act="tree-reveal"/);
-assert.match(searchingDatabase, /清除搜索并定位/);
+assert.match(searchingDatabase, /<span>定位<\/span>/);
 const searchingTable = renderTreeContextMenuView(table, { searching: true });
 assert.match(searchingTable, /data-act="tree-reveal"/);
 assert.equal(searchingTable.includes('tree-open-console'), false, '表节点保持没有控制台动作');

@@ -2,30 +2,6 @@ const esc = value => String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').
 const attr = value => esc(value).replace(/"/g, '&quot;');
 const MENU_VIEWPORT_MARGIN = 8;
 
-function tabHtml(tab, options) {
-  const icon = tab.type === 'console'
-    ? `<span class="c-idx">${options.consoleIcon}</span>`
-    : `<span class="c-table">${options.tableIcon}</span>`;
-  const tableContext = tab.schema ? tab.db + '.' + tab.schema : tab.db;
-  const title = tab.type === 'console'
-    ? esc(tab.title)
-    : `${esc(tab.table)} <span class="tdb">${esc(tableContext)}</span>`;
-  const tablePath = tab.schema ? `${tab.db}.${tab.schema}.${tab.table}` : `${tab.db}.${tab.table}`;
-  const tooltip = tab.type === 'table' ? attr(`${tab.instance} · ${tablePath}`) : attr(tab.title);
-  return `<div class="tab ${tab.id === options.activeTabId ? 'active' : ''}" data-act="tab" data-id="${tab.id}" title="${tooltip}">
-    ${icon}<span>${title}</span><span class="x" data-act="close-tab" data-id="${tab.id}">✕</span></div>`;
-}
-
-export function renderTabBarView(options) {
-  const tabs = options.tabs.filter(tab => tab.type !== 'console' || tab.open !== false)
-    .map(tab => tabHtml(tab, options)).join('');
-  return `<div class="console-launcher-wrap">
-    <button class="console-launcher" data-act="toggle-console-menu" title="查询控制台" aria-label="查询控制台">
-      ${options.consoleIcon}<span class="launcher-caret">⌄</span>
-    </button>
-  </div><div class="tabs-scroll">${tabs}</div>`;
-}
-
 function consoleItem(tab, activeTabId) {
   const active = tab.id === activeTabId ? ' active' : '';
   const closed = tab.open === false ? ' closed' : '';

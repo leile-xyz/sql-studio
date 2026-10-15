@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SQL Studio 网格交互测试</title>
+  <link rel="stylesheet" href="../src/app.css">
+  <style>
+    body { display: flex; flex-direction: column; }
+    #fixtureToolbar { height: 42px; }
+    #fixtureToast { margin-left: auto; color: var(--green); }
+    #fixtureToast.err { color: var(--red); }
+  </style>
+</head>
+<body>
+  <div class="toolbar" id="fixtureToolbar">
+    <strong>SQL Studio · 网格交互测试</strong>
+    <span id="fixtureToast" role="status"></span>
+  </div>
+  <div id="tabbody"></div>
+  <div id="statusbar"><span id="sbCell"></span></div>
+  <div class="menu grid-context-menu" id="gridContextMenu" role="menu" aria-label="表格操作"></div>
+  <script type="module" src="grid-fixture.mjs"></script>
+</body>
+</html>

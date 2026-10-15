@@ -101,7 +101,7 @@ async function testTreeConsoleContextIsolation() {
   assert.ok(html.includes('id="treeContextMenu"'));
   const menu = await readUtf8('src/lib/resource-tree-menu.mjs');
   assert.ok(events.includes("'tree-reveal'"), '搜索结果定位动作未接入事件分发');
-  assert.ok(menu.includes('data-act="tree-reveal"') && menu.includes('清除搜索并定位'), '定位菜单项缺失');
+  assert.ok(menu.includes('data-act="tree-reveal"') && menu.includes('<span>定位</span>'), '定位菜单项缺失');
   assert.ok(menu.includes('options.searching && isTreeRevealNode(node)'), '定位菜单项必须以搜索状态为条件');
   assert.ok(source.includes("searching: !!$('treeSearch').value.trim()"), '定位动作必须只在搜索状态下出现');
   assert.ok(locate.includes("searchInput().value = '';"), '定位前必须清空搜索条件');

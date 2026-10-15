@@ -6,8 +6,9 @@ const MIN_COLUMN_WIDTH = 40;
 const DEFAULT_COLUMN_WIDTH = 100;
 
 function createClickHandlers(options) {
-  const currentTab = () => options.getCurrentTab();
   return Object.freeze({
+    ...createTableClickHandlers(options),
+    ...createQueryClickHandlers(options),
     'switch-env': ({ element }) => options.switchEnv(element.dataset.env),
     'open-envmgr': () => options.openEnvManager(),
     relogin: () => { options.hideMenus(); options.openLogin(); },
@@ -41,6 +42,12 @@ function createClickHandlers(options) {
       event.stopPropagation();
       options.toggleAllConsolesMenu(element);
     },
+  });
+}
+
+function createTableClickHandlers(options) {
+  const currentTab = () => options.getCurrentTab();
+  return Object.freeze({
     subview: ({ element }) => {
       const tab = currentTab();
       const subview = element.dataset.v;
@@ -85,6 +92,12 @@ function createClickHandlers(options) {
     },
     'to-console': () => options.newConsole(buildTableConsoleSql(currentTab())),
     'copy-ddl': () => copyDdl(currentTab(), options),
+  });
+}
+
+function createQueryClickHandlers(options) {
+  const currentTab = () => options.getCurrentTab();
+  return Object.freeze({
     'run-console': () => options.runConsole(currentTab()),
     'res-tab': ({ element }) => {
       const tab = currentTab();
@@ -106,13 +119,22 @@ function createClickHandlers(options) {
     beautify: () => options.beautify(currentTab()),
     'export-csv': () => options.exportTableCsv(currentTab()),
     'export-csv-con': () => options.exportConsoleCsv(currentTab()),
-    cell: ({ element }) => options.selectCell(element),
+    cell: ({ element, event }) => options.grid.selectCell(element, event),
+    'grid-row': ({ element, event }) => options.grid.selectCell(element, event),
+    'grid-copy': ({ element }) => options.grid.copy(element.dataset.format),
+    'grid-freeze': ({ element }) => options.grid.freeze(element.dataset.axis),
+    'grid-unfreeze': ({ element }) => options.grid.unfreeze(element.dataset.axis),
   });
 }
 
 function bindContextMenuEvents(options) {
   document.addEventListener('contextmenu', event => {
     event.preventDefault();
+    const cell = event.target.closest('#tabbody table.grid th, #tabbody table.grid td');
+    if (cell) {
+      options.grid.openMenu({ element: cell, clientX: event.clientX, clientY: event.clientY });
+      return;
+    }
     const treeNode = event.target.closest('#tree .tnode[data-uid]');
     if (treeNode) {
       options.openTreeContextMenu({ uid: treeNode.dataset.uid, clientX: event.clientX, clientY: event.clientY });
@@ -205,17 +227,7 @@ function bindKeyboardEvents(options) {
       options.runConsole(tab);
     }
     if (event.key === 'Enter' && event.target.dataset?.act === 'where-input') options.applyWhere(tab);
-    copySelectedCell(event);
   });
-}
-
-function copySelectedCell(event) {
-  if (!event.ctrlKey || !['c', 'C'].includes(event.key)) return;
-  const tag = (event.target.tagName || '').toLowerCase();
-  if (tag === 'input' || tag === 'textarea' || String(window.getSelection())) return;
-  const cell = document.querySelector('td.cell-sel');
-  if (!cell) return;
-  navigator.clipboard.writeText(cell.querySelector('.null') ? '' : cell.textContent);
 }
 
 function createEditorResize(event, tab) {

@@ -22,7 +22,7 @@ export function renderGrid(columns, rows, options = {}) {
   if (!columns.length) return '<div class="center-view" style="color:var(--text-faint)">无列</div>';
   const widthOf = column => (options.widths && options.widths[column.name]) || columnWidth(column);
   const totalWidth = GUTTER_WIDTH_PX + columns.reduce((sum, column) => sum + widthOf(column), 0);
-  let html = `<table class="grid" style="width:${totalWidth}px"><colgroup><col style="width:${GUTTER_WIDTH_PX}px">`;
+  let html = `<table class="grid" role="grid" aria-label="查询数据" aria-multiselectable="true" tabindex="0" style="width:${totalWidth}px"><colgroup><col style="width:${GUTTER_WIDTH_PX}px">`;
   columns.forEach(column => { html += `<col style="width:${widthOf(column)}px">`; });
   html += '</colgroup><thead><tr><th class="gutter"></th>';
   columns.forEach((column, columnIndex) => {
@@ -30,7 +30,7 @@ export function renderGrid(columns, rows, options = {}) {
   });
   html += '</tr></thead><tbody>';
   rows.forEach((row, rowIndex) => {
-    html += renderRow(columns, row, rowIndex, options);
+    html += renderRow(columns, row, { ...options, rowIndex });
   });
   return html + '</tbody></table>';
 }
@@ -39,9 +39,9 @@ function renderHeader(column, columnIndex, options) {
   const sortIndicator = orderIndex >= 0 ? renderSortIndicator(options.orderBy, orderIndex) : '';
   const title = column.name + (column.type ? ' · ' + column.type : '') + (column.comment ? '\n' + column.comment : '');
   const sortable = options.sortable
-    ? `class="sortable" data-act="sort" data-col="${escapeAttribute(column.name)}"`
+    ? 'class="sortable" data-act="sort"'
     : '';
-  return `<th ${sortable} title="${escapeAttribute(title)}">
+  return `<th ${sortable} data-ci="${columnIndex}" data-col="${escapeAttribute(column.name)}" title="${escapeAttribute(title)}">
     <span class="th-ico ${column.pk ? 'c-key' : 'c-col'}">${column.pk ? ICO.key : ICO.col}</span>${escapeHtml(column.name)}${sortIndicator}<span class="th-rs" data-ci="${columnIndex}" data-col="${escapeAttribute(column.name)}"></span></th>`;
 }
 
@@ -51,13 +51,13 @@ function renderSortIndicator(orderBy, orderIndex) {
   return ` <span class="sort-ind">${order.dir === 'asc' ? '▲' : '▼'}${sequence}</span>`;
 }
 
-function renderRow(columns, row, rowIndex, options) {
-  const displayIndex = (options.start || 0) + rowIndex + 1;
-  let html = `<tr><td class="gutter">${displayIndex}</td>`;
+function renderRow(columns, row, options) {
+  const displayIndex = (options.start || 0) + options.rowIndex + 1;
+  let html = `<tr data-ri="${options.rowIndex}" aria-selected="false"><td class="gutter" data-act="grid-row" title="单击选中；Shift 连选；Ctrl 加选或取消；右键复制或冻结">${displayIndex}</td>`;
   columns.forEach((column, columnIndex) => {
     const value = row[columnIndex];
     const content = value == null ? '<span class="null">&lt;null&gt;</span>' : escapeHtml(value);
-    html += `<td class="${column.num ? 'num' : ''}" data-act="cell" data-r="${displayIndex}" data-col="${escapeAttribute(column.name)}">${content}</td>`;
+    html += `<td class="${column.num ? 'num' : ''}" data-act="cell" data-r="${displayIndex}" data-ci="${columnIndex}" data-col="${escapeAttribute(column.name)}">${content}</td>`;
   });
   return html + '</tr>';
 }
