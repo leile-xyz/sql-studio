@@ -1,5 +1,7 @@
 # AGENTS.md
 
+继承 [上级指引](../AGENTS.md) 的通用约束；本文件补充当前项目的实现与验证要求。
+
 本文件为 AI 编码助手提供 SQL Studio 桌面客户端的协作指引。
 
 ## 项目概述
@@ -14,9 +16,8 @@ sql-studio/
 ├── src/           Tauri 前端：index.html + app.js + app.css + theme-bootstrap.mjs + lib/*.mjs
 ├── src-tauri/     Rust 宿主
 ├── test/          单元测试、mock 与 Windows E2E
-├── contracts/     principal-identity / remediation-decisions / sql-studio-query-contract
 ├── gl/            预置 sql-studio.exe / sql-studio-browser.exe
-├── .github/  .codex-tasks/
+├── scripts/       部署等辅助脚本（deploy 会复制到工作区外）
 └── package.json  README.md  CHANGELOG.md  CONTRIBUTING.md  SECURITY.md  PRIVACY.md  LICENSE
 ```
 
@@ -24,7 +25,7 @@ sql-studio/
 
 - Rust 入口 `src-tauri/src/main.rs`：注册全部 `tauri::command` + `setup()`（KV、凭据、MCP、调度、托盘）。
 - Rust 模块：`archery/`（登录 / 代发 / 每环境 Cookie Jar / CSRF：`login` / `api_get` / `api_post`）、`background.rs`（托盘 / 单实例 / 隐藏恢复）、`mcp.rs` + `mcp_tools.rs`、`session.rs`（按 `envId` 解析环境与凭据、复用或建立会话）、`scheduler.rs`（cron 调度）、`storage/`（`workflow_db.rs` SQLite + `migrations.rs`）、`workflows/`（commands / domain / execution* / plugin_* / repository / schedule_* / validation）、`notifications/`、`plugins/`（`dingtalk.rs`、`message_builder.rs`）。
-- 前端 `src/`：`index.html`、`app.js`（页面编排）、`app.css`、`theme-bootstrap.mjs`、`default-envs.json`；`src/lib/`（约 48 文件）：`api.js`（调 Tauri）、`sql-editor.mjs`、`db-context.mjs`、`console-*.mjs`、`resource-tree-*.mjs`、`workflow-*.mjs`、`mcp-dialog.mjs`、`store.js`、`ddl.js` 等。`src/lib/package.json` 为 `{"type":"module"}`。
+- 前端 `src/`：`index.html`、`app.js`（页面编排）、`app.css`、`theme-bootstrap.mjs`、`default-envs.json`；`src/lib/`（按职责拆分）：`api.js`（调 Tauri）、`sql-editor.mjs`、`db-context.mjs`、`console-*.mjs`、`resource-tree-*.mjs`、`workflow-*.mjs`、`mcp-dialog.mjs`、`store.js`、`ddl.js` 等。`src/lib/package.json` 为 `{"type":"module"}`。
 - 权限：`src-tauri/capabilities/default.json` 仅 `core:default`，业务走自定义 command。
 
 ## 常用命令
@@ -71,3 +72,5 @@ cargo check --locked --manifest-path src-tauri/Cargo.toml
 - 公开 Issue / 截图禁止提交真实域名、凭据、Cookie、Session、SQL、数据库内容。
 - 提交前跑 `npm test` 与 cargo fmt / check。
 - 文档见 `docs/`（`docs/README.md` 有索引）；自有代码 MIT。
+
+`npm run deploy` 是工作区外安装复制，不属于构建或文档验证，未经明确授权不执行。纯文档维护只静态核对包脚本、路径、链接、编码与差异，不连接实际 Archery 或数据库。
